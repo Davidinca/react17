@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* 1. Tu paleta en @theme */
+ @theme {
+  /* NARANJA de marca */
+  --color-primary-50:  #fdf4e8;
+  --color-primary-100: #fde9d1;
+  --color-primary-200: #fbc98e;
+  --color-primary-300: #f9b460;
+  --color-primary-400: #f8a94a;
+  --color-primary-500: #f7941d;
+  --color-primary-600: #de851a;
+  --color-primary-700: #c57617;
+  --color-primary-800: #ac6714;
+  --color-primary-900: #945811;
+
+  /* AZUL complementario (para botones secundarios, enlaces, etc.) */
+  --color-secondary-50:  #e7f0fe;
+  --color-secondary-100: #cce0fd;
+  --color-secondary-200: #99c1fb;
+  --color-secondary-300: #66a1fa;
+  --color-secondary-400: #3382f8;
+  --color-secondary-500: #1d80f7;  /* botón secundario */
+  --color-secondary-600: #176bd4;
+  --color-secondary-700: #1256b0;
+  --color-secondary-800: #0d418d;
+  --color-secondary-900: #082c69;
+
+  /* GRIS corporativo */
+  --color-gray-100: #f1f1f1;
+  --color-gray-500: #7a7a7a;
+  --color-gray-900: #0c0c0c;
+
+  /* SEMÁNTICOS */
+  --color-danger-500: #ef4444;
+  --color-danger-400: #f87171;
+  --color-success-500: #10b981;
+  --color-warning-500: #fb923c;
+  --color-info-500: #3b82f6;
+}
+
+/* 2. Flowbite plugin y source */
+@plugin "flowbite-react/plugin/tailwindcss";
+@source "../.flowbite-react/class-list.json";
+
+/* 3. Tus utilidades extra */
+@layer utilities {
+  .bg-primary-500        { background-color: var(--color-primary-500); }
+  .hover\:bg-primary-400:hover { background-color: var(--color-primary-400); }
+
+  .bg-secondary-500        { background-color: var(--color-secondary-500); }
+  .hover\:bg-secondary-400:hover { background-color: var(--color-secondary-400); }
+
+  .bg-danger-500        { background-color: var(--color-danger-500); }
+  .hover\:bg-danger-400:hover { background-color: var(--color-danger-400); }
+
+  .text-white { color: #ffffff; }
+
+
+}
+
+body {
+  background: rgb(122,122,122);
+}

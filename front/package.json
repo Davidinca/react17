@@ -1,0 +1,36 @@
+{
+  "name": "front",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.10.0",
+    "bootstrap": "^3.4.1",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "react-router-dom": "^5.3.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^8.57.0",
+    "@types/axios": "^0.9.36",
+    "@types/react": "^17.0.80",
+    "@types/react-dom": "^17.0.25",
+    "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^13.24.0",
+    "vite": "^5.4.10"
+  },
+  "resolve": {
+    "alias": {
+      "axios": "axios/dist/axios.min.js"
+    }
+  }
+}
