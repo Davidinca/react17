@@ -1,81 +1,57 @@
 from rest_framework import serializers
-from rest_framework_gis.serializers import GeoFeatureModelSerializer
-from .models import Barrio, Poste, Cliente
+from .models import Cliente, TipoServicio
 
-
-class BarrioSerializer(GeoFeatureModelSerializer):
-    total_postes = serializers.ReadOnlyField()
-    postes_disponibles = serializers.ReadOnlyField()
-    
+class TipoServicioSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Barrio
-        geo_field = 'poligono'
-        fields = ['id', 'nombre', 'activo', 'total_postes', 'postes_disponibles', 'created_at']
+        model = TipoServicio
+        fields = '__all__'
 
-
-class BarrioSimpleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Barrio
-        fields = ['id', 'nombre']
-
-
-class PosteSerializer(GeoFeatureModelSerializer):
-    barrio = BarrioSimpleSerializer(read_only=True)
-    barrio_id = serializers.IntegerField(write_only=True)
-    tiene_disponibilidad = serializers.ReadOnlyField()
-    porcentaje_ocupacion = serializers.ReadOnlyField()
-    clientes_asignados = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = Poste
-        geo_field = 'ubicacion'
-        fields = [
-            'id', 'codigo', 'barrio', 'barrio_id', 'capacidad_nodos', 
-            'nodos_disponibles', 'activo', 'observaciones',
-            'tiene_disponibilidad', 'porcentaje_ocupacion', 'clientes_asignados',
-            'created_at', 'updated_at'
-        ]
-
-
-class PosteSimpleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Poste
-        fields = ['id', 'codigo', 'nodos_disponibles', 'capacidad_nodos']
-
-
-class ClienteSerializer(GeoFeatureModelSerializer):
-    barrio = BarrioSimpleSerializer(read_only=True)
-    barrio_id = serializers.IntegerField(write_only=True)
-    poste_asignado = PosteSimpleSerializer(read_only=True)
-    distancia_al_poste = serializers.ReadOnlyField()
+class ClienteSerializer(serializers.ModelSerializer):
+    tipo_servicio_nombre = serializers.CharField(source='tipo_servicio.nombre', read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+    tipo_vivienda_display = serializers.CharField(source='get_tipo_vivienda_display', read_only=True)
     
     class Meta:
         model = Cliente
-        geo_field = 'ubicacion'
         fields = [
-            'id', 'nombre', 'apellido', 'telefono', 'email', 'direccion',
-            'barrio', 'barrio_id', 'poste_asignado', 'estado_solicitud',
-            'observaciones', 'fecha_solicitud', 'fecha_instalacion',
-            'distancia_al_poste', 'created_at', 'updated_at'
+            'id', 'nombre', 'apellido', 'email', 'telefono', 'ci',
+            'tipo_vivienda', 'tipo_vivienda_display', 'piso',
+            'zona', 'calle', 'direccion_completa', 'latitud', 'longitud',
+            'tipo_servicio', 'tipo_servicio_nombre', 'estado', 'estado_display',
+            'fecha_solicitud', 'fecha_actualizacion', 'fecha_activacion',
+            'observaciones'
         ]
+        read_only_fields = ['fecha_solicitud', 'fecha_actualizacion', 'fecha_activacion']
+    
+    def validate_email(self, value):
+        if Cliente.objects.filter(email=value).exclude(pk=self.instance.pk if self.instance else None).exists():
+            raise serializers.ValidationError("Ya existe un cliente con este email.")
+        return value
+    
+    def validate_ci(self, value):
+        if Cliente.objects.filter(ci=value).exclude(pk=self.instance.pk if self.instance else None).exists():
+            raise serializers.ValidationError("Ya existe un cliente con este CI.")
+        return value
+    
+    def validate(self, data):
+        # Validar que si es departamento debe tener piso
+        if data.get('tipo_vivienda') == 'departamento' and not data.get('piso'):
+            raise serializers.ValidationError({
+                'piso': 'El piso es requerido para departamentos.'
+            })
+        return data
 
+class ClienteCreateSerializer(ClienteSerializer):
+    """Serializer específico para creación con validaciones adicionales"""
+    class Meta(ClienteSerializer.Meta):
+        pass
 
-class ClienteCreateSerializer(serializers.ModelSerializer):
+class ClienteUpdateSerializer(serializers.ModelSerializer):
+    """Serializer para actualizaciones parciales"""
     class Meta:
         model = Cliente
         fields = [
-            'nombre', 'apellido', 'telefono', 'email', 'direccion',
-            'ubicacion', 'barrio_id', 'observaciones'
+            'nombre', 'apellido', 'email', 'telefono', 'ci',
+            'tipo_vivienda', 'piso', 'zona', 'calle', 'direccion_completa',
+            'latitud', 'longitud', 'tipo_servicio', 'estado', 'observaciones'
         ]
-    
-    def create(self, validated_data):
-        cliente = Cliente.objects.create(**validated_data)
-        # Intentar asignar poste automáticamente
-        cliente.asignar_poste_automatico()
-        return cliente
-
-
-class CoberturaVerificacionSerializer(serializers.Serializer):
-    lat = serializers.FloatField()
-    lng = serializers.FloatField()
-    radio_metros = serializers.IntegerField(default=150)

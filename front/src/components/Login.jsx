@@ -4,7 +4,7 @@ import { useHistory } from 'react-router-dom';
 import '../styles/login.css';
 
 // Configuración de la API
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'http://192.168.1.219:8000/api';
 
 function Login() {
   const history = useHistory();

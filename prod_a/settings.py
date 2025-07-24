@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'almacenes',
     'contratos',
     'maps',
+    
 
 ]
 
@@ -144,6 +145,9 @@ CORS_ALLOWED_ORIGINS = [
     'http://192.168.1.187:5173',
     'http://100.101.87.68:5173',
     'http://localhost:4173',
+    'http://192.168.1.219:5173',
+
+    
 
 ]
 

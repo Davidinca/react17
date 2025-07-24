@@ -140,6 +140,12 @@ function Layout({ children, activeSection, onSectionChange }) {
               <li><Link to="/permisos"><i className="fa fa-lock"></i> Permisos</Link></li>
               <li><Link to="/migracion"><i className="fa fa-exchange"></i> Migración</Link></li>
               <li><Link to="/empleados"><i className="fa fa-address-book"></i> Empleados</Link></li>
+              <li className={activeSection === 'mapa' ? 'active' : ''}>
+              <Link to="/dashboard/mapa" onClick={() => onSectionChange('mapa')}>
+                <i className="fa fa-map"></i> Mapa
+              </Link>
+              </li>
+
             </ul>
           </div>
 

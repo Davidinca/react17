@@ -3,6 +3,20 @@ import axios from 'axios';
 import { useHistory } from 'react-router-dom';
 import Layout from './Layout';
 import "../../styles/dashboard.css";
+import MapView from '../maps/MapView.jsx';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Corrección del icono de Leaflet que a veces falla
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+});
+
+
 
 // Configuración de la API
 const API_BASE_URL = 'http://localhost:8000/api';
@@ -238,6 +252,8 @@ function Dashboard() {
     switch (activeSection) {
       case 'dashboard':
         return (
+
+          
           <div className="content-section">
             <h1 className="page-header">Dashboard</h1>
             
@@ -304,6 +320,25 @@ function Dashboard() {
                 </div>
               </div>
             </div>
+            {/* Mapa de ubicaciones */}
+<div className="panel panel-default">
+  <div className="panel-heading">
+    <i className="fa fa-map"></i> Mapa de Ubicaciones
+  </div>
+  <div className="panel-body" style={{ height: '400px' }}>
+    <MapContainer center={[-16.5, -68.15]} zoom={13} style={{ height: '100%', width: '100%' }}>
+      <TileLayer
+        attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <Marker position={[-16.5, -68.15]}>
+        <Popup>
+          Ubicación COTEL <br /> La Paz.
+        </Popup>
+      </Marker>
+    </MapContainer>
+  </div>
+</div>
 
             {/* Recent Activity */}
             <div className="row">
