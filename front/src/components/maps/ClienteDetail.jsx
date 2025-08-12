@@ -20,13 +20,15 @@ import {
   HomeIcon,
   CalendarIcon
 } from '@heroicons/react/24/outline';
-import { useGoogleMaps } from './hooks/useGoogleMaps';
+import { useLeafletMap } from './hooks/useLeafletMap';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { clienteService } from './services/apiService';
 import { formatCliente } from './utils/formatters';
 import { ESTADO_OPTIONS } from './types/clienteTypes';
 
 const ClienteDetail = ({ cliente, onClose, onEdit }) => {
-  const [clienteData, setClienteData] = useState(formatCliente(cliente));
+  const [clienteData, setClienteData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -37,65 +39,122 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
     isLoaded,
     initializeMap,
     createMarker,
-    createInfoWindow
-  } = useGoogleMaps();
+    clearMarkers,
+    centerMap
+  } = useLeafletMap();
 
-  useEffect(() => {
-    if (isLoaded && mapContainerRef.current && clienteData.latitud && clienteData.longitud) {
-      initializeClienteMap();
+  // Función de formateo segura local
+  const formatClienteSafe = (clienteRaw) => {
+    try {
+      // Si formatCliente existe y funciona, úsala
+      if (typeof formatCliente === 'function') {
+        return formatCliente(clienteRaw);
+      }
+    } catch (error) {
+      console.warn('Error en formatCliente, usando formateo básico:', error);
     }
-  }, [isLoaded, clienteData]);
-
-  const initializeClienteMap = () => {
-    const position = {
-      lat: parseFloat(clienteData.latitud),
-      lng: parseFloat(clienteData.longitud)
-    };
-
-    const map = initializeMap(mapContainerRef.current, {
-      center: position,
-      zoom: 16
-    });
-
-    const marker = createMarker(position, {
-      title: clienteData.nombre_completo,
-      icon: getMarkerIcon(clienteData.estado)
-    });
-
-    const infoWindowContent = `
-      <div class="p-3 max-w-xs">
-        <h3 class="font-bold text-lg mb-2">${clienteData.nombre_completo}</h3>
-        <div class="space-y-1 text-sm">
-          <p><strong>Email:</strong> ${clienteData.email}</p>
-          <p><strong>Teléfono:</strong> ${clienteData.telefono}</p>
-          <p><strong>Tipo:</strong> ${clienteData.tipo_vivienda_label}</p>
-          ${clienteData.piso ? `<p><strong>Piso:</strong> ${clienteData.piso}</p>` : ''}
-          <p><strong>Dirección:</strong> ${clienteData.direccion_completa}</p>
-        </div>
-      </div>
-    `;
-
-    createInfoWindow(infoWindowContent, marker);
-  };
-
-  const getMarkerIcon = (estado) => {
-    const colors = {
-      pendiente: '#ff9800',
-      activo: '#4caf50',
-      rechazado: '#f44336'
-    };
-
+    
+    // Formateo básico como fallback
     return {
-      path: window.google.maps.SymbolPath.CIRCLE,
-      fillColor: colors[estado] || '#9e9e9e',
-      fillOpacity: 0.8,
-      scale: 10,
-      strokeColor: '#ffffff',
-      strokeWeight: 2
+      id: clienteRaw.id || '',
+      nombre_completo: clienteRaw.nombre_completo || clienteRaw.nombre || 'Sin nombre',
+      email: clienteRaw.email || '',
+      telefono: clienteRaw.telefono || '',
+      ci: clienteRaw.ci || '',
+      estado: clienteRaw.estado || 'pendiente',
+      estado_display: clienteRaw.estado_display || clienteRaw.estado || 'Pendiente',
+      tipo_servicio_nombre: clienteRaw.tipo_servicio_nombre || clienteRaw.servicio || '',
+      tipo_vivienda_label: clienteRaw.tipo_vivienda_label || clienteRaw.tipo_vivienda || '',
+      piso: clienteRaw.piso || '',
+      zona: clienteRaw.zona || '',
+      calle: clienteRaw.calle || '',
+      direccion_completa: clienteRaw.direccion_completa || clienteRaw.direccion || '',
+      latitud: clienteRaw.latitud || clienteRaw.lat || '',
+      longitud: clienteRaw.longitud || clienteRaw.lng || clienteRaw.lon || '',
+      fecha_solicitud: clienteRaw.fecha_solicitud || clienteRaw.created_at || '',
+      fecha_actualizacion: clienteRaw.fecha_actualizacion || clienteRaw.updated_at || '',
+      fecha_activacion: clienteRaw.fecha_activacion || '',
+      observaciones: clienteRaw.observaciones || ''
     };
   };
+
+  // Debug: Log del cliente recibido
+  useEffect(() => {
+    console.log('Cliente recibido en props:', cliente);
+    
+    if (cliente) {
+      try {
+        const formatted = formatClienteSafe(cliente);
+        console.log('Cliente formateado:', formatted);
+        setClienteData(formatted);
+        setError(null); // Limpiar error si todo salió bien
+      } catch (error) {
+        console.error('Error al formatear cliente:', error);
+        setError(`Error al procesar datos: ${error.message}`);
+        // Usar datos básicos como último recurso
+        setClienteData({
+          id: cliente.id || 'N/A',
+          nombre_completo: cliente.nombre_completo || cliente.nombre || 'Cliente sin nombre',
+          email: cliente.email || 'No disponible',
+          telefono: cliente.telefono || 'No disponible',
+          estado: cliente.estado || 'pendiente'
+        });
+      }
+    } else {
+      console.warn('No se recibió cliente en props');
+      setError('No se recibieron datos del cliente');
+    }
+  }, [cliente]);
+
+  // Inicializar mapa cuando el componente se monta
+  useEffect(() => {
+    if (isLoaded && mapContainerRef.current && clienteData) {
+      // Configurar el mapa con la ubicación del cliente
+      const map = initializeMap(mapContainerRef.current, {
+        center: clienteData?.latitud && clienteData?.longitud 
+          ? [parseFloat(clienteData.latitud), parseFloat(clienteData.longitud)]
+          : [-16.5000, -68.1193],
+        zoom: 15
+      });
+
+      // Agregar marcador si hay ubicación
+      if (clienteData?.latitud && clienteData?.longitud) {
+        const position = {
+          lat: parseFloat(clienteData.latitud),
+          lng: parseFloat(clienteData.longitud)
+        };
+        
+        createMarker(position, {
+          title: clienteData.nombre_completo || 'Ubicación del cliente'
+        });
+        
+        // Centrar el mapa en la ubicación
+        centerMap(position.lat, position.lng, 16);
+      }
+
+      // Asegurarse de que los iconos de Leaflet se carguen correctamente
+      delete L.Icon.Default.prototype._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
+        iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+      });
+
+      // Limpieza al desmontar
+      return () => {
+        if (map) {
+          map.remove();
+        }
+      };
+    }
+  }, [isLoaded, clienteData, initializeMap, createMarker, centerMap]);
 
   const handleEstadoChange = async (nuevoEstado) => {
+    if (!clienteData?.id) {
+      setError('No se puede cambiar el estado: ID de cliente no disponible');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     
@@ -106,16 +165,28 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
         observaciones
       );
       
-      setClienteData(formatCliente(updatedCliente));
+      const formatted = formatClienteSafe(updatedCliente);
+      setClienteData(formatted);
       setSuccess(`Estado cambiado a ${nuevoEstado} exitosamente`);
       setObservaciones('');
       
       // Reinicializar el mapa con el nuevo estado
       if (isLoaded) {
-        setTimeout(initializeClienteMap, 100);
+        setTimeout(() => {
+          clearMarkers();
+          const position = {
+            lat: parseFloat(clienteData.latitud),
+            lng: parseFloat(clienteData.longitud)
+          };
+          createMarker(position, {
+            title: clienteData.nombre_completo || 'Ubicación del cliente'
+          });
+          centerMap(position.lat, position.lng, 16);
+        }, 100);
       }
     } catch (err) {
-      setError(err.message);
+      console.error('Error al cambiar estado:', err);
+      setError(err.message || 'Error al cambiar el estado');
     } finally {
       setLoading(false);
     }
@@ -131,31 +202,53 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    if (!dateString) return 'No disponible';
+    
+    try {
+      return new Date(dateString).toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.error('Error al formatear fecha:', error);
+      return 'Fecha inválida';
+    }
   };
 
+  // Mostrar loading si no hay datos
+  if (!clienteData) {
+    return (
+      <div className="fixed inset-0 z-50 overflow-auto bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardBody className="flex items-center justify-center py-8">
+            <Typography>Cargando datos del cliente...</Typography>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <Card className="w-full max-w-4xl mx-auto">
-      <CardHeader floated={false} shadow={false} className="rounded-none">
+    <div className="fixed inset-0 z-50 overflow-auto bg-black bg-opacity-50 flex items-start justify-center p-4">
+      <div className="relative w-full max-w-4xl my-8">
+        <Card className="w-full">
+          <CardHeader floated={false} shadow={false} className="rounded-none">
         <div className="flex items-center justify-between">
           <div>
             <Typography variant="h4" color="blue-gray">
-              {clienteData.nombre_completo}
+              {clienteData.nombre_completo || 'Cliente sin nombre'}
             </Typography>
             <div className="flex items-center gap-2 mt-2">
               <Chip
                 size="sm"
-                value={clienteData.estado_display}
+                value={clienteData.estado_display || clienteData.estado || 'Sin estado'}
                 color={getStatusColor(clienteData.estado)}
               />
               <Typography variant="small" color="gray">
-                ID: {clienteData.id}
+                ID: {clienteData.id || 'No disponible'}
               </Typography>
             </div>
           </div>
@@ -204,7 +297,7 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
               <div>
                 <Typography variant="small" color="gray">Email</Typography>
                 <Typography variant="small" className="font-medium">
-                  {clienteData.email}
+                  {clienteData.email || 'No disponible'}
                 </Typography>
               </div>
             </div>
@@ -214,7 +307,7 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
               <div>
                 <Typography variant="small" color="gray">Teléfono</Typography>
                 <Typography variant="small" className="font-medium">
-                  {clienteData.telefono}
+                  {clienteData.telefono || 'No disponible'}
                 </Typography>
               </div>
             </div>
@@ -222,14 +315,14 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
             <div>
               <Typography variant="small" color="gray">CI</Typography>
               <Typography variant="small" className="font-medium">
-                {clienteData.ci}
+                {clienteData.ci || 'No disponible'}
               </Typography>
             </div>
 
             <div>
               <Typography variant="small" color="gray">Servicio</Typography>
               <Typography variant="small" className="font-medium">
-                {clienteData.tipo_servicio_nombre}
+                {clienteData.tipo_servicio_nombre || 'No especificado'}
               </Typography>
             </div>
           </div>
@@ -246,7 +339,7 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
               <div>
                 <Typography variant="small" color="gray">Tipo</Typography>
                 <Typography variant="small" className="font-medium">
-                  {clienteData.tipo_vivienda_label}
+                  {clienteData.tipo_vivienda_label || 'No especificado'}
                 </Typography>
               </div>
             </div>
@@ -263,14 +356,14 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
             <div>
               <Typography variant="small" color="gray">Zona</Typography>
               <Typography variant="small" className="font-medium">
-                {clienteData.zona}
+                {clienteData.zona || 'No disponible'}
               </Typography>
             </div>
 
             <div>
               <Typography variant="small" color="gray">Calle</Typography>
               <Typography variant="small" className="font-medium">
-                {clienteData.calle}
+                {clienteData.calle || 'No disponible'}
               </Typography>
             </div>
           </div>
@@ -281,31 +374,35 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
               <div className="flex-1">
                 <Typography variant="small" color="gray">Dirección Completa</Typography>
                 <Typography variant="small" className="font-medium">
-                  {clienteData.direccion_completa}
+                  {clienteData.direccion_completa || 'No disponible'}
                 </Typography>
-                <Typography variant="small" color="gray" className="mt-1">
-                  Coordenadas: {clienteData.latitud}, {clienteData.longitud}
-                </Typography>
+                {(clienteData.latitud && clienteData.longitud) && (
+                  <Typography variant="small" color="gray" className="mt-1">
+                    Coordenadas: {clienteData.latitud}, {clienteData.longitud}
+                  </Typography>
+                )}
               </div>
             </div>
           </div>
         </div>
 
         {/* Mapa de Ubicación */}
-        <div>
-          <Typography variant="h6" color="blue-gray" className="mb-3">
-            Ubicación en el Mapa
-          </Typography>
-          <div className="w-full h-64 border rounded-lg overflow-hidden">
-            {isLoaded ? (
-              <div ref={mapContainerRef} className="w-full h-full" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                <Typography>Cargando mapa...</Typography>
-              </div>
-            )}
+        {(clienteData.latitud && clienteData.longitud) && (
+          <div>
+            <Typography variant="h6" color="blue-gray" className="mb-3">
+              Ubicación en el Mapa
+            </Typography>
+            <div className="w-full h-64 border rounded-lg overflow-hidden">
+              {isLoaded ? (
+                <div ref={mapContainerRef} className="w-full h-full" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                  <Typography>Cargando mapa...</Typography>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Información de Fechas */}
         <div>
@@ -398,8 +495,13 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
             )}
           </div>
         </div>
+
+        {/* Debug info - remover en producción */}
+       
       </CardBody>
-    </Card>
+        </Card>
+      </div>
+    </div>
   );
 };
 

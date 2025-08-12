@@ -9,5 +9,10 @@ export default defineConfig({
   esbuild: {
     jsxFactory: 'React.createElement',
     jsxFragment: 'React.Fragment'
+  },
+  server: {
+    host: '0.0.0.0',       // Escucha en todas las interfaces
+    port: 5173,            // Puedes cambiarlo si lo necesitas
+    strictPort: true       // Evita que Vite cambie el puerto si está ocupado
   }
 })

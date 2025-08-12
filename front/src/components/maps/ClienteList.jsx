@@ -1,5 +1,5 @@
 // src/components/maps/ClienteList.jsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Card,
   CardBody,
@@ -18,9 +18,7 @@ import {
   Alert,
   Tabs,
   TabsHeader,
-  TabsBody,
   Tab,
-  TabPanel,
   Spinner
 } from '@material-tailwind/react';
 import {
@@ -30,248 +28,445 @@ import {
   EyeIcon,
   MapPinIcon,
   FunnelIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  BuildingOfficeIcon,
+  UserIcon,
+  HomeIcon
 } from '@heroicons/react/24/outline';
-import { useGoogleMaps } from './hooks/useGoogleMaps';
-import { clienteService } from './services/apiService';
-import { formatCliente } from './utils/formatters';
-import { ESTADO_OPTIONS } from './types/clienteTypes';
+import { useLeafletMap } from './hooks/useLeafletMap';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { 
+  clienteService, 
+  CLIENTE_ESTADOS, 
+  COBERTURA_CHOICES, 
+  TIPO_CLIENTE_CHOICES, 
+  VIVIENDA_CHOICES 
+} from './services/apiService';
 
+/**
+ * Funciones auxiliares para obtener información de estados y tipos
+ * Estas funciones proporcionan información visual para los chips y elementos de la UI
+ */
+const getEstadoInfo = (estado) => {
+  const estadosMap = {
+    'PEND_COBERTURA': {
+      label: 'Pend. Cobertura',
+      bgColor: 'bg-orange-100',
+      textColor: 'text-orange-800'
+    },
+    'PEND_EQUIPO': {
+      label: 'Pend. Equipo',
+      bgColor: 'bg-yellow-100',
+      textColor: 'text-yellow-800'
+    },
+    'PEND_INSTALACION': {
+      label: 'Pend. Instalación',
+      bgColor: 'bg-blue-100',
+      textColor: 'text-blue-800'
+    },
+    'ACTIVO': {
+      label: 'Activo',
+      bgColor: 'bg-green-100',
+      textColor: 'text-green-800'
+    },
+    'SUSPENDIDO': {
+      label: 'Suspendido',
+      bgColor: 'bg-red-100',
+      textColor: 'text-red-800'
+    }
+  };
+  return estadosMap[estado] || { label: estado, bgColor: 'bg-gray-100', textColor: 'text-gray-800' };
+};
+
+const getCoberturaInfo = (cobertura) => {
+  const coberturaMap = {
+    'CON_COBERTURA': {
+      label: 'Con Cobertura',
+      bgColor: 'bg-green-100',
+      textColor: 'text-green-800'
+    },
+    'SIN_COBERTURA': {
+      label: 'Sin Cobertura',
+      bgColor: 'bg-red-100',
+      textColor: 'text-red-800'
+    }
+  };
+  return coberturaMap[cobertura] || { label: cobertura, bgColor: 'bg-gray-100', textColor: 'text-gray-800' };
+};
+
+const getTipoClienteInfo = (tipoCliente) => {
+  const tipoMap = {
+    'COMUN': {
+      label: 'Usuario Común',
+      icon: <UserIcon className="h-4 w-4" />,
+      bgColor: 'bg-blue-100',
+      textColor: 'text-blue-800'
+    },
+    'EMPRESA': {
+      label: 'Empresa',
+      icon: <BuildingOfficeIcon className="h-4 w-4" />,
+      bgColor: 'bg-purple-100',
+      textColor: 'text-purple-800'
+    }
+  };
+  return tipoMap[tipoCliente] || { label: tipoCliente, icon: null, bgColor: 'bg-gray-100', textColor: 'text-gray-800' };
+};
+
+// Función auxiliar para obtener el color del marcador según el estado
+const getMarkerColor = (estado) => {
+  const colors = {
+    'PEND_COBERTURA': 'orange',
+    'PEND_EQUIPO': 'yellow',
+    'PEND_INSTALACION': 'blue',
+    'ACTIVO': 'green',
+    'SUSPENDIDO': 'red'
+  };
+  return colors[estado] || 'gray';
+};
+
+/**
+ * Componente principal ClienteList
+ * Maneja la visualización y filtrado de la lista de clientes
+ * 
+ * @param {Function} onEdit - Callback para editar cliente
+ * @param {Function} onView - Callback para ver detalles del cliente
+ * @param {Function} onDelete - Callback para eliminar cliente
+ * @param {number} refreshTrigger - Trigger para refrescar la lista
+ */
 const ClienteList = ({ onEdit, onView, onDelete, refreshTrigger }) => {
+  // Estados principales
   const [clientes, setClientes] = useState([]);
   const [filteredClientes, setFilteredClientes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Estados para el mapa
   const [selectedCliente, setSelectedCliente] = useState(null);
   const [showMap, setShowMap] = useState(false);
-  const [activeTab, setActiveTab] = useState('todos');
   const [mapReady, setMapReady] = useState(false);
-  const [debug, setDebug] = useState(false); // Para mostrar info de debug
+  
+  // Estado para navegación por tabs
+  const [activeTab, setActiveTab] = useState('todos');
 
-  // Filtros
+  // Estados para filtros
   const [filters, setFilters] = useState({
-    search: '',
-    estado: '',
-    zona: '',
-    tipo_vivienda: ''
+    search: '',           // Búsqueda general por texto
+    estado: '',          // Filtro por estado del cliente
+    cobertura: '',       // Filtro por tipo de cobertura
+    tipo_cliente: '',    // Filtro por tipo de cliente (común/empresa)
+    zona: '',           // Filtro por zona geográfica
+    vivienda: ''        // Filtro por tipo de vivienda
   });
 
+  // Referencias para el mapa
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   
+  // Hook personalizado para Leaflet
   const {
     isLoaded,
     initializeMap,
     createMarker,
     clearMarkers,
-    fitBounds,
-    createInfoWindow
-  } = useGoogleMaps();
+    centerMap
+  } = useLeafletMap();
 
-useEffect(() => {
-  if (showMap && isLoaded && mapContainerRef.current) {
-    // Pequeño delay para asegurar que el modal esté montado
-    const timer = setTimeout(() => {
-      console.log('Inicializando mapa en el contenedor...');
-      const map = initializeMap(mapContainerRef.current, {
-        center: {
-          lat: selectedCliente?.latitud || -17.78629,
-          lng: selectedCliente?.longitud || -63.18117
-        },
-        zoom: 14
+  /**
+   * Efecto para inicializar el mapa cuando se abre el modal
+   * Se ejecuta cuando cambia showMap, isLoaded o selectedCliente
+   */
+  useEffect(() => {
+    if (showMap && isLoaded && mapContainerRef.current) {
+      const timer = setTimeout(() => {
+        // Determinar centro del mapa basado en si hay un cliente seleccionado
+        const center = selectedCliente?.latitud && selectedCliente?.longitud 
+          ? [
+              parseFloat(selectedCliente.latitud), 
+              parseFloat(selectedCliente.longitud)
+            ]
+          : [-16.5000, -68.1193]; // La Paz centro como fallback
+
+        const map = initializeMap(mapContainerRef.current, {
+          center,
+          zoom: selectedCliente ? 16 : 12 // Zoom más cercano si hay cliente específico
+        });
+
+        // Configurar iconos de Leaflet
+        delete L.Icon.Default.prototype._getIconUrl;
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
+          iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+          shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+        });
+
+        mapInstanceRef.current = map;
+        setMapReady(true);
+      }, 100); // Pequeño delay para asegurar que el DOM esté listo
+
+      return () => {
+        clearTimeout(timer);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
+        }
+      };
+    }
+  }, [showMap, isLoaded, selectedCliente, initializeMap]);
+
+  /**
+   * Efecto para actualizar el marcador en el mapa
+   * Se ejecuta cuando el mapa está listo y hay un cliente seleccionado
+   */
+  useEffect(() => {
+    if (mapReady && selectedCliente && selectedCliente.latitud && selectedCliente.longitud) {
+      clearMarkers(); // Limpiar marcadores anteriores
+
+      const position = {
+        lat: parseFloat(selectedCliente.latitud),
+        lng: parseFloat(selectedCliente.longitud)
+      };
+      
+      // Centrar el mapa en la posición del cliente
+      centerMap(position.lat, position.lng, 16);
+
+      // Crear marcador para el cliente
+      const marker = createMarker(position, {
+        title: selectedCliente.tipo_cliente === 'EMPRESA' 
+          ? selectedCliente.razon_social 
+          : `${selectedCliente.nombre} ${selectedCliente.apellido}`,
+        draggable: false
       });
 
-      mapInstanceRef.current = map;
-      setMapReady(true);
-    }, 100); // Delay de 100ms
+      // Crear contenido para la ventana de información
+      // Crear marcador con tooltip
+      createMarker(position, {
+        title: selectedCliente.nombre_completo || 'Cliente',
+        popup: `
+          <div class="p-2 max-w-xs">
+            <h3 class="font-bold text-lg mb-2">${selectedCliente.nombre_completo || 'Sin nombre'}</h3>
+            <div class="space-y-1 text-sm">
+              <p><strong>Email:</strong> ${selectedCliente.email || 'No disponible'}</p>
+              <p><strong>Teléfono:</strong> ${selectedCliente.telefono || 'No disponible'}</p>
+              <p><strong>Dirección:</strong> ${selectedCliente.direccion_completa || 'No disponible'}</p>
+              <p><strong>Estado:</strong> ${selectedCliente.estado_display || selectedCliente.estado || 'No especificado'}</p>
+            </div>
+          </div>
+        `,
+        icon: L.icon({
+          iconUrl: `https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/images/marker-icon.png`,
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          tooltipAnchor: [16, -28],
+          shadowUrl: 'https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/images/marker-shadow.png',
+          shadowSize: [41, 41],
+          shadowAnchor: [12, 41],
+          className: `marker-${getMarkerColor(selectedCliente.estado)}`,
+        }),
+      });
+    }
+  }, [selectedCliente, mapReady, clearMarkers, createMarker, centerMap]);
 
-    return () => clearTimeout(timer);
-  }
-}, [showMap, isLoaded, selectedCliente]);
-
-useEffect(() => {
-  if (mapReady && selectedCliente && selectedCliente.latitud && selectedCliente.longitud) {
-    console.log('Actualizando marcador para cliente:', selectedCliente.nombre_completo);
-    clearMarkers();
-
-    const marker = createMarker({
-      position: { lat: selectedCliente.latitud, lng: selectedCliente.longitud },
-      map: mapInstanceRef.current,
-      title: selectedCliente.nombre_completo
-    });
-
-    const infoWindow = createInfoWindow({
-      content: `<div><strong>${selectedCliente.nombre_completo}</strong><br>${selectedCliente.direccion_completa}</div>`
-    });
-
-    infoWindow.open(mapInstanceRef.current, marker);
-
-    // Ajustar el centro del mapa al nuevo cliente
-    mapInstanceRef.current.setCenter({
-      lat: selectedCliente.latitud,
-      lng: selectedCliente.longitud
-    });
-
-  }
-}, [selectedCliente, mapReady]);
-
-
-
+  /**
+   * Efecto para cargar clientes al montar el componente y cuando cambie refreshTrigger
+   */
   useEffect(() => {
-    console.log('ClienteList montado, cargando clientes...');
     loadClientes();
   }, [refreshTrigger]);
 
+  /**
+   * Efecto para aplicar filtros cuando cambien los clientes o los filtros
+   */
   useEffect(() => {
-    console.log('Aplicando filtros...', { clientes: clientes.length, filters, activeTab });
     applyFilters();
   }, [clientes, filters, activeTab]);
 
-  // Debug: mostrar cuando cambian los clientes
-  useEffect(() => {
-    console.log('Clientes actualizados:', clientes);
-  }, [clientes]);
-
+  /**
+   * Función para cargar la lista de clientes desde la API
+   */
   const loadClientes = async () => {
     console.log('Iniciando carga de clientes...');
     setLoading(true);
     setError(null);
     
     try {
-      console.log('Llamando a clienteService.getAll()...');
+      console.log('Realizando petición a la API...');
       const data = await clienteService.getAll();
-      console.log('Datos recibidos:', data);
+      console.log('Respuesta de la API:', data);
       
-      if (!data) {
-        throw new Error('No se recibieron datos del servidor');
-      }
-
-      if (!Array.isArray(data)) {
-        console.error('Los datos recibidos no son un array:', typeof data, data);
+      // Manejar diferentes formatos de respuesta de la API
+      const clientesArray = Array.isArray(data) ? data : (data.results || []);
+      console.log('Clientes procesados:', clientesArray);
+      
+      if (!Array.isArray(clientesArray)) {
+        console.error('Formato de datos inválido recibido del servidor:', data);
         throw new Error('Formato de datos inválido recibido del servidor');
       }
 
-      console.log(`Recibidos ${data.length} clientes del servidor`);
+      // Formatear clientes para facilitar su uso en la UI
+      const formattedClientes = clientesArray.map(cliente => ({
+        ...cliente,
+        // Crear nombre completo combinando nombre y apellido
+        nombre_completo: `${cliente.nombre || ''} ${cliente.apellido || ''}`.trim(),
+        // Crear dirección completa si no existe
+        direccion_completa: cliente.direccion_completa || 
+                           `${cliente.calle || ''}, ${cliente.zona || ''}`.trim().replace(/^,\s*/, ''),
+        // Agregar información formateada para la UI
+        estado_info: getEstadoInfo(cliente.estado),
+        cobertura_info: getCoberturaInfo(cliente.cobertura),
+        tipo_cliente_info: getTipoClienteInfo(cliente.tipo_cliente)
+      }));
       
-      const formattedClientes = data.map((cliente, index) => {
-        try {
-          return formatCliente(cliente);
-        } catch (formatError) {
-          console.error(`Error formateando cliente ${index}:`, formatError, cliente);
-          // Retornar cliente sin formatear como fallback
-          return {
-            ...cliente,
-            id: cliente.id || index,
-            nombre_completo: `${cliente.nombre || ''} ${cliente.apellido || ''}`.trim() || 'Sin nombre',
-            estado_display: cliente.estado || 'pendiente',
-            direccion_completa: `${cliente.calle || ''}, ${cliente.zona || ''}`.trim() || 'Sin dirección'
-          };
-        }
-      });
-      
-      console.log('Clientes formateados:', formattedClientes);
       setClientes(formattedClientes);
       
     } catch (err) {
       console.error('Error cargando clientes:', err);
-      setError(`Error al cargar clientes: ${err.message}`);
-      // En caso de error, asegurar que clientes sea un array vacío
+      setError(err.message || 'Error al cargar clientes');
       setClientes([]);
     } finally {
       setLoading(false);
     }
   };
 
+  /**
+   * Función para aplicar todos los filtros a la lista de clientes
+   */
   const applyFilters = () => {
     if (!Array.isArray(clientes)) {
-      console.error('clientes no es un array:', clientes);
       setFilteredClientes([]);
       return;
     }
 
     let filtered = [...clientes];
-    console.log('Clientes antes de filtrar:', filtered.length);
 
-    // Filtro por tab activo
+    // Filtro por tab activo (estado específico)
     if (activeTab !== 'todos') {
       filtered = filtered.filter(cliente => cliente.estado === activeTab);
-      console.log(`Después de filtro por tab '${activeTab}':`, filtered.length);
     }
 
-    // Filtro por búsqueda
+    // Filtro por búsqueda general (múltiples campos)
     if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
+      const searchLower = filters.search.toLowerCase().trim();
       filtered = filtered.filter(cliente =>
+        // Buscar en campos de nombre y datos personales
         (cliente.nombre || '').toLowerCase().includes(searchLower) ||
         (cliente.apellido || '').toLowerCase().includes(searchLower) ||
+        (cliente.razon_social || '').toLowerCase().includes(searchLower) ||
+        // Buscar en datos de contacto
         (cliente.email || '').toLowerCase().includes(searchLower) ||
-        (cliente.ci || '').toLowerCase().includes(searchLower) ||
         (cliente.telefono || '').toLowerCase().includes(searchLower) ||
+        // Buscar en documentos de identidad
+        (cliente.ci || '').toString().toLowerCase().includes(searchLower) ||
+        (cliente.nit || '').toString().toLowerCase().includes(searchLower) ||
+        // Buscar en ubicación
         (cliente.zona || '').toLowerCase().includes(searchLower) ||
-        (cliente.calle || '').toLowerCase().includes(searchLower)
+        (cliente.calle || '').toLowerCase().includes(searchLower) ||
+        (cliente.direccion_completa || '').toLowerCase().includes(searchLower)
       );
-      console.log(`Después de filtro de búsqueda '${filters.search}':`, filtered.length);
     }
 
-    // Filtros adicionales
+    // Filtros específicos por campo
     if (filters.estado) {
       filtered = filtered.filter(cliente => cliente.estado === filters.estado);
-      console.log(`Después de filtro por estado '${filters.estado}':`, filtered.length);
+    }
+
+    if (filters.cobertura) {
+      filtered = filtered.filter(cliente => cliente.cobertura === filters.cobertura);
+    }
+
+    if (filters.tipo_cliente) {
+      filtered = filtered.filter(cliente => cliente.tipo_cliente === filters.tipo_cliente);
     }
 
     if (filters.zona) {
+      const zonaLower = filters.zona.toLowerCase().trim();
       filtered = filtered.filter(cliente => 
-        (cliente.zona || '').toLowerCase().includes(filters.zona.toLowerCase())
+        (cliente.zona || '').toLowerCase().includes(zonaLower)
       );
-      console.log(`Después de filtro por zona '${filters.zona}':`, filtered.length);
     }
 
-    if (filters.tipo_vivienda) {
-      filtered = filtered.filter(cliente => cliente.tipo_vivienda === filters.tipo_vivienda);
-      console.log(`Después de filtro por tipo_vivienda '${filters.tipo_vivienda}':`, filtered.length);
+    if (filters.vivienda) {
+      filtered = filtered.filter(cliente => cliente.vivienda === filters.vivienda);
     }
 
-    console.log('Clientes finales después de filtros:', filtered.length);
     setFilteredClientes(filtered);
   };
 
+  /**
+   * Maneja el cambio de un filtro específico
+   * @param {string} name - Nombre del filtro
+   * @param {string} value - Nuevo valor del filtro
+   */
   const handleFilterChange = (name, value) => {
-    console.log(`Cambiando filtro ${name} a:`, value);
     setFilters(prev => ({
       ...prev,
-      [name]: value
+      [name]: value || '' // Asegurar que no sea null/undefined
     }));
   };
 
+  /**
+   * Limpia todos los filtros aplicados
+   */
   const clearFilters = () => {
-    console.log('Limpiando filtros');
     setFilters({
       search: '',
       estado: '',
+      cobertura: '',
+      tipo_cliente: '',
       zona: '',
-      tipo_vivienda: ''
+      vivienda: ''
     });
+    setActiveTab('todos'); // También resetear el tab activo
   };
 
+  /**
+   * Muestra un cliente específico en el mapa
+   * @param {Object} cliente - Cliente a mostrar
+   */
   const showClienteOnMap = (cliente) => {
-  setSelectedCliente(cliente);
-  setShowMap(true);
-  setMapReady(false);
-  mapInstanceRef.current = null; // Resetear mapa
-};
+    setSelectedCliente(cliente);
+    setShowMap(true);
+    setMapReady(false);
+    mapInstanceRef.current = null;
+  };
 
+  /**
+   * Maneja el cambio de estado de un cliente
+   * @param {number} clienteId - ID del cliente
+   * @param {string} nuevoEstado - Nuevo estado
+   * @param {string} observaciones - Observaciones opcionales
+   */
+  const handleEstadoChange = async (clienteId, nuevoEstado, observaciones = '') => {
+    if (!clienteId || !nuevoEstado) return;
 
-  const handleEstadoChange = async (clienteId, nuevoEstado) => {
     try {
-      console.log(`Cambiando estado del cliente ${clienteId} a ${nuevoEstado}`);
-      await clienteService.cambiarEstado(clienteId, nuevoEstado);
-      loadClientes(); // Recargar lista
+      setError(null);
+      await clienteService.cambiarEstado(clienteId, nuevoEstado, observaciones);
+      
+      // Actualizar el cliente en el estado local inmediatamente
+      setClientes(prevClientes => 
+        prevClientes.map(cliente => 
+          cliente.id === clienteId 
+            ? { 
+                ...cliente, 
+                estado: nuevoEstado, 
+                estado_info: getEstadoInfo(nuevoEstado),
+                observaciones: observaciones || cliente.observaciones
+              }
+            : cliente
+        )
+      );
+      
     } catch (err) {
       console.error('Error cambiando estado:', err);
       setError(`Error al cambiar estado: ${err.message}`);
     }
   };
 
+  /**
+   * Cierra el modal del mapa y limpia referencias
+   */
   const handleCloseMap = () => {
     setShowMap(false);
     setSelectedCliente(null);
@@ -282,14 +477,19 @@ useEffect(() => {
     }
   };
 
-  // Calcular estadísticas para los tabs
+  /**
+   * Calcula estadísticas para los tabs de estado
+   */
   const tabsData = [
     { label: 'Todos', value: 'todos', count: clientes.length },
-    { label: 'Pendientes', value: 'pendiente', count: clientes.filter(c => c.estado === 'pendiente').length },
-    { label: 'Activos', value: 'activo', count: clientes.filter(c => c.estado === 'activo').length },
-    { label: 'Rechazados', value: 'rechazado', count: clientes.filter(c => c.estado === 'rechazado').length }
+    { label: 'Pend. Cobertura', value: 'PEND_COBERTURA', count: clientes.filter(c => c.estado === 'PEND_COBERTURA').length },
+    { label: 'Pend. Equipo', value: 'PEND_EQUIPO', count: clientes.filter(c => c.estado === 'PEND_EQUIPO').length },
+    { label: 'Pend. Instalación', value: 'PEND_INSTALACION', count: clientes.filter(c => c.estado === 'PEND_INSTALACION').length },
+    { label: 'Activos', value: 'ACTIVO', count: clientes.filter(c => c.estado === 'ACTIVO').length },
+    { label: 'Suspendidos', value: 'SUSPENDIDO', count: clientes.filter(c => c.estado === 'SUSPENDIDO').length }
   ];
 
+  // Mostrar spinner mientras carga
   if (loading) {
     return (
       <Card>
@@ -304,51 +504,6 @@ useEffect(() => {
   }
 
   return (
-    <>
-    <Dialog
-  size="xl"
-  open={showMap}
-  handler={handleCloseMap}
-  className="max-w-6xl"
->
-  <DialogHeader>
-    <Typography variant="h5">
-      {selectedCliente ? `Ubicación de ${selectedCliente.nombre_completo}` : 'Ubicaciones de Clientes'}
-    </Typography>
-  </DialogHeader>
-  
-  <DialogBody className="p-0">
-    <div className="h-96 w-full relative">
-      {!isLoaded ? (
-        <div className="w-full h-full flex items-center justify-center bg-gray-100">
-          <Typography>Cargando Google Maps...</Typography>
-        </div>
-      ) : (
-        <>
-          <div 
-            ref={mapContainerRef} 
-            className="w-full h-full"
-          />
-          {!mapReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
-              <Typography>Inicializando mapa...</Typography>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  </DialogBody>
-  
-  <DialogFooter>
-    <Button
-      variant="outlined"
-      onClick={handleCloseMap}
-    >
-      Cerrar
-    </Button>
-  </DialogFooter>
-</Dialog>
-    
     <div className="space-y-6">
       <Card>
         <CardHeader floated={false} shadow={false} className="rounded-none">
@@ -357,17 +512,6 @@ useEffect(() => {
               Lista de Clientes
             </Typography>
             <div className="flex items-center gap-2">
-              {/* Botón de debug */}
-              <Button
-                size="sm"
-                variant="text"
-                onClick={() => setDebug(!debug)}
-                className="flex items-center gap-2"
-              >
-                <ExclamationTriangleIcon className="h-4 w-4" />
-                Debug
-              </Button>
-              
               <Button
                 size="sm"
                 variant="outlined"
@@ -376,13 +520,14 @@ useEffect(() => {
                 disabled={!isLoaded}
               >
                 <MapPinIcon className="h-4 w-4" />
-                {isLoaded ? 'Ver en Mapa' : 'Cargando Mapa...'}
+                {isLoaded ? 'Ver Todos en Mapa' : 'Cargando Mapa...'}
               </Button>
             </div>
           </div>
         </CardHeader>
 
         <CardBody>
+          {/* Mensaje de error */}
           {error && (
             <Alert color="red" className="mb-4">
               <div className="flex items-center gap-2">
@@ -393,102 +538,247 @@ useEffect(() => {
                 size="sm" 
                 variant="text" 
                 className="mt-2"
-                onClick={loadClientes}
+                onClick={() => setError(null)}
               >
-                Reintentar
+                Cerrar
               </Button>
             </Alert>
           )}
 
-          {/* Panel de Debug */}
-          {debug && (
-            <Alert color="blue" className="mb-4">
-              <Typography variant="h6" className="mb-2">Información de Debug:</Typography>
-              <div className="text-sm space-y-1">
-                <p><strong>Total clientes cargados:</strong> {clientes.length}</p>
-                <p><strong>Clientes filtrados:</strong> {filteredClientes.length}</p>
-                <p><strong>Tab activo:</strong> {activeTab}</p>
-                <p><strong>Filtros activos:</strong> {JSON.stringify(filters)}</p>
-                <p><strong>Estado de carga:</strong> {loading ? 'Cargando' : 'Completado'}</p>
-                <p><strong>Google Maps cargado:</strong> {isLoaded ? 'Sí' : 'No'}</p>
-              </div>
-              {clientes.length > 0 && (
-                <details className="mt-2">
-                  <summary className="cursor-pointer font-semibold">Ver primer cliente (ejemplo)</summary>
-                  <pre className="mt-2 text-xs overflow-auto">{JSON.stringify(clientes[0], null, 2)}</pre>
-                </details>
-              )}
-            </Alert>
-          )}
-
-          {/* Filtros */}
-          <div className="mb-6 space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <Input
-                  label="Buscar"
-                  icon={<MagnifyingGlassIcon className="h-5 w-5" />}
-                  value={filters.search}
-                  onChange={(e) => handleFilterChange('search', e.target.value)}
-                  placeholder="Buscar por nombre, email, CI, teléfono..."
-                />
-              </div>
+          {/* Sección de filtros mejorada */}
+          <div className="mb-8 bg-gray-50 p-5 rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
+              <Typography variant="h6" color="blue-gray" className="font-medium text-lg">
+                Filtros de Búsqueda
+              </Typography>
               <Button
                 variant="outlined"
                 size="sm"
-                className="flex items-center gap-2"
+                color="blue-gray"
+                className="flex items-center gap-1 px-3 py-2 text-sm whitespace-nowrap"
                 onClick={clearFilters}
+                disabled={!Object.values(filters).some(f => f) && activeTab === 'todos'}
               >
                 <FunnelIcon className="h-4 w-4" />
-                Limpiar
+                Limpiar Filtros
               </Button>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Select
-                label="Estado"
-                value={filters.estado}
-                onChange={(value) => handleFilterChange('estado', value)}
-              >
-                <Option value="">Todos los estados</Option>
-                {ESTADO_OPTIONS?.map(option => (
-                  <Option key={option.value} value={option.value}>
-                    {option.label}
-                  </Option>
-                )) || []}
-              </Select>
-
+            
+            {/* Barra de búsqueda */}
+            <div className="mb-5">
               <Input
-                label="Zona"
-                value={filters.zona}
-                onChange={(e) => handleFilterChange('zona', e.target.value)}
-                placeholder="Filtrar por zona"
+                label="Buscar cliente"
+                icon={<MagnifyingGlassIcon className="h-5 w-5 text-gray-500" />}
+                value={filters.search}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
+                placeholder="Nombre, email, CI, NIT, teléfono, zona..."
+                className="bg-white border-gray-300 focus:border-blue-500"
+                labelProps={{
+                  className: "text-sm"
+                }}
+                containerProps={{
+                  className: "min-w-0"
+                }}
               />
+            </div>
 
-              <Select
-                label="Tipo de Vivienda"
-                value={filters.tipo_vivienda}
-                onChange={(value) => handleFilterChange('tipo_vivienda', value)}
-              >
-                <Option value="">Todos los tipos</Option>
-                <Option value="vivienda">Vivienda</Option>
-                <Option value="departamento">Departamento</Option>
-              </Select>
+            {/* Filtros específicos */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 -mx-1">
+              {/* Filtro por Estado */}
+              <div className="w-full">
+                <Typography variant="small" color="blue-gray" className="mb-1 font-medium">
+                  Estado
+                </Typography>
+                <Select
+                  value={filters.estado}
+                  onChange={(value) => handleFilterChange('estado', value)}
+                  className="w-full bg-white border border-gray-300 rounded-md text-sm"
+                  containerProps={{ 
+                    className: "min-w-0"
+                  }}
+                  labelProps={{ 
+                    className: "hidden" 
+                  }}
+                  menuProps={{
+                    className: "z-50"
+                  }}
+                >
+                  <Option value="" className="text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded-full bg-gray-300"></div>
+                      <span>Todos los estados</span>
+                    </div>
+                  </Option>
+                  {CLIENTE_ESTADOS.map(option => {
+                    const estadoInfo = getEstadoInfo(option.value);
+                    return (
+                      <Option key={option.value} value={option.value}>
+                        <div className="flex items-center gap-2">
+                          <div className={`h-3 w-3 rounded-full ${estadoInfo.color}`}></div>
+                          <span>{option.label}</span>
+                        </div>
+                      </Option>
+                    );
+                  })}
+                </Select>
+              </div>
+
+              {/* Filtro por Cobertura */}
+              <div className="w-full">
+                <Typography variant="small" color="blue-gray" className="mb-1 font-medium">
+                  Cobertura
+                </Typography>
+                <Select
+                  value={filters.cobertura}
+                  onChange={(value) => handleFilterChange('cobertura', value)}
+                  className="w-full bg-white border border-gray-300 rounded-md text-sm"
+                  containerProps={{ 
+                    className: "min-w-0"
+                  }}
+                  labelProps={{ 
+                    className: "hidden" 
+                  }}
+                  menuProps={{
+                    className: "z-50"
+                  }}
+                >
+                  <Option value="" className="text-gray-600">Todas las coberturas</Option>
+                  {COBERTURA_CHOICES.map(option => {
+                    const coberturaInfo = getCoberturaInfo(option.value);
+                    return (
+                      <Option key={option.value} value={option.value}>
+                        <div className="flex items-center gap-2">
+                          <div className={`h-3 w-3 rounded-full ${coberturaInfo.color}`}></div>
+                          <span>{option.label}</span>
+                        </div>
+                      </Option>
+                    );
+                  })}
+                </Select>
+              </div>
+
+              {/* Filtro por Tipo de Cliente */}
+              <div className="w-full">
+                <Typography variant="small" color="blue-gray" className="mb-1 font-medium">
+                  Tipo de Cliente
+                </Typography>
+                <Select
+                  value={filters.tipo_cliente}
+                  onChange={(value) => handleFilterChange('tipo_cliente', value)}
+                  className="w-full bg-white border border-gray-300 rounded-md text-sm"
+                  containerProps={{ 
+                    className: "min-w-0"
+                  }}
+                  labelProps={{ 
+                    className: "hidden" 
+                  }}
+                  menuProps={{
+                    className: "z-50"
+                  }}
+                >
+                  <Option value="" className="text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <div className="h-4 w-4 flex items-center justify-center">
+                        <UserIcon className="h-3.5 w-3.5 text-gray-400" />
+                      </div>
+                      <span>Todos los tipos</span>
+                    </div>
+                  </Option>
+                  {TIPO_CLIENTE_CHOICES.map(option => {
+                    const tipoInfo = getTipoClienteInfo(option.value);
+                    return (
+                      <Option key={option.value} value={option.value}>
+                        <div className="flex items-center gap-2">
+                          {option.value === 'EMPRESA' ? (
+                            <BuildingOfficeIcon className="h-4 w-4 text-blue-500" />
+                          ) : (
+                            <UserIcon className="h-4 w-4 text-green-500" />
+                          )}
+                          <span>{option.label}</span>
+                        </div>
+                      </Option>
+                    );
+                  })}
+                </Select>
+              </div>
+
+              {/* Filtro por Tipo de Vivienda */}
+              <div className="w-full">
+                <Typography variant="small" color="blue-gray" className="mb-1 font-medium">
+                  Tipo de Vivienda
+                </Typography>
+                <Select
+                  value={filters.vivienda}
+                  onChange={(value) => handleFilterChange('vivienda', value)}
+                  className="w-full bg-white border border-gray-300 rounded-md text-sm"
+                  containerProps={{ 
+                    className: "min-w-0"
+                  }}
+                  labelProps={{ 
+                    className: "hidden" 
+                  }}
+                  menuProps={{
+                    className: "z-50"
+                  }}
+                >
+                  <Option value="" className="text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <div className="h-4 w-4 flex items-center justify-center">
+                        <HomeIcon className="h-3.5 w-3.5 text-gray-400" />
+                      </div>
+                      <span>Todos los tipos</span>
+                    </div>
+                  </Option>
+                  {VIVIENDA_CHOICES.map(option => (
+                    <Option key={option.value} value={option.value}>
+                      <div className="flex items-center gap-2">
+                        <HomeIcon className="h-4 w-4 text-purple-500" />
+                        <span>{option.label}</span>
+                      </div>
+                    </Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Filtro por Zona */}
+              <div className="w-full">
+                <Typography variant="small" color="blue-gray" className="mb-1 font-medium">
+                  Zona
+                </Typography>
+                <Input
+                  value={filters.zona}
+                  onChange={(e) => handleFilterChange('zona', e.target.value)}
+                  placeholder="Filtrar por zona"
+                  className="w-full bg-white border border-gray-300 rounded-md text-sm focus:border-blue-500"
+                  icon={<MapPinIcon className="h-5 w-5 text-gray-500" />}
+                  labelProps={{
+                    className: "hidden"
+                  }}
+                  containerProps={{
+                    className: "min-w-0"
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          {/* Tabs por estado */}
-          <Tabs value={activeTab} onChange={setActiveTab} className="mb-6">
-            <TabsHeader>
+          {/* Tabs por estado con contadores */}
+          <Tabs value={activeTab} className="mb-6">
+            <TabsHeader className="grid w-full grid-cols-3 lg:grid-cols-6">
               {tabsData.map(({ label, value, count }) => (
-                <Tab key={value} value={value}>
+                <Tab 
+                  key={value} 
+                  value={value}
+                  onClick={() => setActiveTab(value)}
+                  className="text-xs"
+                >
                   {label} ({count})
                 </Tab>
               ))}
             </TabsHeader>
           </Tabs>
 
-          {/* Lista de clientes */}
+          {/* Lista de clientes o mensajes de estado vacío */}
           {clientes.length === 0 && !loading ? (
             <div className="text-center py-8">
               <Typography color="gray" className="mb-4">
@@ -507,6 +797,9 @@ useEffect(() => {
               <Typography color="gray" className="mb-4">
                 No se encontraron clientes con los filtros aplicados
               </Typography>
+              <Typography variant="small" color="gray" className="mb-4">
+                Total de clientes: {clientes.length}
+              </Typography>
               <Button 
                 variant="outlined" 
                 onClick={clearFilters}
@@ -517,119 +810,206 @@ useEffect(() => {
               </Button>
             </div>
           ) : (
-            <div className="grid gap-4">
-              {filteredClientes.map((cliente) => (
-                <Card key={cliente.id} className="border">
-                  <CardBody className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <Typography variant="h6" color="blue-gray">
-                            {cliente.nombre_completo || 'Nombre no disponible'}
-                          </Typography>
-                          <Chip
-                            size="sm"
-                            value={cliente.estado_display || cliente.estado || 'Sin estado'}
-                            color={cliente.estado_badge?.color || 'gray'}
-                          />
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 text-sm">
-                          <div>
-                            <Typography variant="small" color="gray">Email:</Typography>
-                            <Typography variant="small">{cliente.email || 'No disponible'}</Typography>
-                          </div>
-                          <div>
-                            <Typography variant="small" color="gray">Teléfono:</Typography>
-                            <Typography variant="small">{cliente.telefono || 'No disponible'}</Typography>
-                          </div>
-                          <div>
-                            <Typography variant="small" color="gray">CI:</Typography>
-                            <Typography variant="small">{cliente.ci || 'No disponible'}</Typography>
-                          </div>
-                          <div>
-                            <Typography variant="small" color="gray">Tipo:</Typography>
-                            <Typography variant="small">{cliente.tipo_vivienda_label || cliente.tipo_vivienda || 'No especificado'}</Typography>
-                          </div>
-                        </div>
-                        
-                        <div className="mt-2">
-                          <Typography variant="small" color="gray">Dirección:</Typography>
-                          <Typography variant="small">{cliente.direccion_completa || 'Dirección no disponible'}</Typography>
-                        </div>
-                        
-                        <div className="mt-2">
-                          <Typography variant="small" color="gray">
-                            Fecha solicitud: {cliente.fecha_solicitud_formatted || cliente.fecha_solicitud || 'No disponible'}
-                          </Typography>
-                        </div>
-                      </div>
+            <div className="space-y-1">
+              {/* Información de resultados */}
+              <div className="flex items-center justify-between mb-4">
+                <Typography variant="small" color="gray">
+                  Mostrando {filteredClientes.length} de {clientes.length} clientes
+                </Typography>
+                {(Object.values(filters).some(f => f) || activeTab !== 'todos') && (
+                  <Button
+                    variant="text"
+                    size="sm"
+                    onClick={clearFilters}
+                    className="flex items-center gap-1"
+                  >
+                    <FunnelIcon className="h-3 w-3" />
+                    Limpiar filtros
+                  </Button>
+                )}
+              </div>
 
-                      <div className="flex items-center gap-2">
-                        <IconButton
-                          size="sm"
-                          variant="text"
-                          onClick={() => onView && onView(cliente)}
-                          title="Ver detalles"
-                        >
-                          <EyeIcon className="h-4 w-4" />
-                        </IconButton>
-                        
-                        <IconButton
-                          size="sm"
-                          variant="text"
-                          onClick={() => showClienteOnMap(cliente)}
-                          title="Ver en mapa"
-                          disabled={!isLoaded || !cliente.latitud || !cliente.longitud}
-                        >
-                          <MapPinIcon className="h-4 w-4" />
-                        </IconButton>
-                        
-                        <IconButton
-                          size="sm"
-                          variant="text"
-                          onClick={() => onEdit && onEdit(cliente)}
-                          title="Editar"
-                        >
-                          <PencilIcon className="h-4 w-4" />
-                        </IconButton>
-                        
-                        <IconButton
-                          size="sm"
-                          variant="text"
-                          color="red"
-                          onClick={() => onDelete && onDelete(cliente)}
-                          title="Eliminar"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </IconButton>
+              {/* Grid de tarjetas de clientes */}
+              <div className="grid gap-4">
+                {filteredClientes.map((cliente) => (
+                  <Card key={cliente.id} className="border hover:shadow-md transition-shadow">
+                    <CardBody className="p-4">
+                      <div className="flex items-start justify-between">
+                        {/* Información principal del cliente */}
+                        <div className="flex-1">
+                          {/* Encabezado con nombre y chips de estado */}
+                          <div className="flex items-center gap-3 mb-3">
+                            {getTipoClienteInfo(cliente.tipo_cliente).icon}
+                            <Typography variant="h6" color="blue-gray">
+                              {cliente.tipo_cliente === 'EMPRESA' 
+                                ? (cliente.razon_social || 'Empresa sin nombre')
+                                : (cliente.nombre_completo || 'Nombre no disponible')
+                              }
+                            </Typography>
+                            <div className="flex gap-2">
+                              <Chip
+                                size="sm"
+                                value={cliente.estado_info.label}
+                                className={`${cliente.estado_info.bgColor} ${cliente.estado_info.textColor}`}
+                              />
+                              <Chip
+                                size="sm"
+                                value={cliente.cobertura_info.label}
+                                className={`${cliente.cobertura_info.bgColor} ${cliente.cobertura_info.textColor}`}
+                              />
+                            </div>
+                          </div>
+                          
+                          {/* Grid de información detallada */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-3">
+                            {cliente.tipo_cliente === 'EMPRESA' ? (
+                              <>
+                                <div>
+                                  <Typography variant="small" color="gray">NIT:</Typography>
+                                  <Typography variant="small" className="font-medium">
+                                    {cliente.nit || 'No disponible'}
+                                  </Typography>
+                                </div>
+                                <div>
+                                  <Typography variant="small" color="gray">Contacto:</Typography>
+                                  <Typography variant="small" className="font-medium">
+                                    {cliente.nombre_completo || 'No disponible'}
+                                  </Typography>
+                                </div>
+                              </>
+                            ) : (
+                              <div>
+                                <Typography variant="small" color="gray">CI:</Typography>
+                                <Typography variant="small" className="font-medium">
+                                  {cliente.ci || 'No disponible'}
+                                </Typography>
+                              </div>
+                            )}
+                            
+                            <div>
+                              <Typography variant="small" color="gray">Email:</Typography>
+                              <Typography variant="small" className="font-medium">
+                                {cliente.email || 'No disponible'}
+                              </Typography>
+                            </div>
+                            <div>
+                              <Typography variant="small" color="gray">Teléfono:</Typography>
+                              <Typography variant="small" className="font-medium">
+                                {cliente.telefono || 'No disponible'}
+                              </Typography>
+                            </div>
+                            <div>
+                              <Typography variant="small" color="gray">Vivienda:</Typography>
+                              <Typography variant="small" className="font-medium">
+                                {cliente.vivienda || 'No especificado'}
+                                {cliente.piso && ` - Piso ${cliente.piso}`}
+                              </Typography>
+                            </div>
+                          </div>
+                          
+                          {/* Información de dirección */}
+                          <div className="mb-2">
+                            <Typography variant="small" color="gray">Dirección:</Typography>
+                            <Typography variant="small" className="font-medium">
+                              {cliente.direccion_completa || 'Dirección no disponible'}
+                            </Typography>
+                            {cliente.numero_puerta && (
+                              <Typography variant="small" color="gray">
+                                Puerta: {cliente.numero_puerta}
+                              </Typography>
+                            )}
+                          </div>
 
-                        {/* Cambio rápido de estado */}
-                        {ESTADO_OPTIONS && (
+                          {/* Información del plan */}
+                          {cliente.plan && (
+                            <div className="mb-2">
+                              <Typography variant="small" color="gray">Plan:</Typography>
+                              <Typography variant="small" className="font-medium text-blue-600">
+                                {cliente.plan.descripcion} - Bs. {cliente.plan.monto_basico}
+                              </Typography>
+                            </div>
+                          )}
+                          
+                          {/* Observaciones */}
+                          {cliente.observaciones && (
+                            <div className="mt-2">
+                              <Typography variant="small" color="gray">Observaciones:</Typography>
+                              <Typography variant="small" className="text-gray-600">
+                                {cliente.observaciones}
+                              </Typography>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Panel de acciones lateral */}
+                        <div className="flex flex-col gap-2 ml-4">
+                          {/* Botones de acción */}
+                          <div className="flex gap-1">
+                            <IconButton
+                              size="sm"
+                              variant="text"
+                              onClick={() => onView && onView(cliente)}
+                              title="Ver detalles"
+                            >
+                              <EyeIcon className="h-4 w-4" />
+                            </IconButton>
+                            
+                            <IconButton
+                              size="sm"
+                              variant="text"
+                              onClick={() => showClienteOnMap(cliente)}
+                              title="Ver en mapa"
+                              disabled={!isLoaded || !cliente.latitud || !cliente.longitud}
+                            >
+                              <MapPinIcon className="h-4 w-4" />
+                            </IconButton>
+                            
+                            <IconButton
+                              size="sm"
+                              variant="text"
+                              onClick={() => onEdit && onEdit(cliente)}
+                              title="Editar"
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                            </IconButton>
+                            
+                            <IconButton
+                              size="sm"
+                              variant="text"
+                              color="red"
+                              onClick={() => onDelete && onDelete(cliente)}
+                              title="Eliminar"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </IconButton>
+                          </div>
+
+                          {/* Selector de cambio rápido de estado */}
                           <Select
                             size="sm"
                             value={cliente.estado || ''}
                             onChange={(value) => handleEstadoChange(cliente.id, value)}
-                            className="min-w-[120px]"
+                            className="min-w-[150px]"
+                            label="Cambiar estado"
                           >
-                            {ESTADO_OPTIONS.map(option => (
+                            {CLIENTE_ESTADOS.map(option => (
                               <Option key={option.value} value={option.value}>
                                 {option.label}
                               </Option>
                             ))}
                           </Select>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  </CardBody>
-                </Card>
-              ))}
+                    </CardBody>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
         </CardBody>
       </Card>
 
-      {/* Dialog del Mapa */}
+      {/* Modal del Mapa */}
       <Dialog
         size="xl"
         open={showMap}
@@ -638,28 +1018,31 @@ useEffect(() => {
       >
         <DialogHeader>
           <Typography variant="h5">
-            {selectedCliente ? `Ubicación de ${selectedCliente.nombre_completo}` : 'Ubicaciones de Clientes'}
+            {selectedCliente 
+              ? `Ubicación de ${
+                  selectedCliente.tipo_cliente === 'EMPRESA' 
+                    ? selectedCliente.razon_social 
+                    : selectedCliente.nombre_completo
+                }` 
+              : 'Ubicaciones de Clientes'
+            }
           </Typography>
         </DialogHeader>
         
         <DialogBody className="p-0">
           <div className="h-96 w-full relative">
             {!isLoaded ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                <Typography>Cargando Google Maps...</Typography>
+              <div className="flex items-center justify-center h-full">
+                <Typography>Cargando mapa...</Typography>
               </div>
             ) : (
-              <>
-                <div 
-                  ref={mapContainerRef} 
-                  className="w-full h-full"
-                />
-                {!mapReady && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
-                    <Typography>Inicializando mapa...</Typography>
-                  </div>
-                )}
-              </>
+              <div ref={mapContainerRef} className="w-full h-full" style={{ zIndex: 1 }} />
+            )}
+            {!mapReady && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
+                <Spinner className="h-6 w-6 mr-2" />
+                <Typography>Inicializando mapa...</Typography>
+              </div>
             )}
           </div>
         </DialogBody>
@@ -674,9 +1057,7 @@ useEffect(() => {
         </DialogFooter>
       </Dialog>
     </div>
-    </>
-  );
-  
+  ); 
 };
 
 export default ClienteList;

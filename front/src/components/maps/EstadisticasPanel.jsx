@@ -15,14 +15,27 @@ import {
   XCircleIcon,
   MapPinIcon,
   HomeIcon,
-  BuildingOfficeIcon
+  BuildingOfficeIcon,
+  UserGroupIcon,
+  ShieldCheckIcon,
+  UserCircleIcon,
+  BuildingOffice2Icon
 } from '@heroicons/react/24/outline';
-import { clienteService, tipoServicioService } from './services/apiService';
+import { clienteService } from './services/apiService';
+
+// Función para formatear números con separadores de miles
+const formatNumber = (num) => {
+  return num?.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") || '0';
+};
 
 const EstadisticasPanel = ({ refreshTrigger }) => {
-  const [estadisticas, setEstadisticas] = useState(null);
-  const [clientes, setClientes] = useState([]);
-  const [tiposServicio, setTiposServicio] = useState([]);
+  const [estadisticas, setEstadisticas] = useState({
+    resumen: {},
+    por_estado: [],
+    por_tipo: [],
+    por_cobertura: [],
+    top_zonas: []
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -34,136 +47,172 @@ const EstadisticasPanel = ({ refreshTrigger }) => {
     setLoading(true);
     setError(null);
     try {
-      const [statsData, clientesData, tiposData] = await Promise.all([
-        clienteService.getEstadisticas(),
-        clienteService.getAll(),
-        tipoServicioService.getAll()
-      ]);
-
-      setEstadisticas(statsData);
-      setClientes(clientesData);
-      setTiposServicio(tiposData);
+      const statsData = await clienteService.getEstadisticas();
+      console.log('Datos de estadísticas recibidos:', statsData);
+      setEstadisticas({
+        resumen: statsData.resumen || {},
+        por_estado: statsData.por_estado || [],
+        por_tipo: statsData.por_tipo || [],
+        por_cobertura: statsData.por_cobertura || [],
+        top_zonas: statsData.top_zonas || []
+      });
     } catch (err) {
-      setError(err.message);
+      console.error('Error al cargar estadísticas:', err);
+      setError(err.message || 'Error al cargar las estadísticas');
     } finally {
       setLoading(false);
     }
   };
 
-  const getZonaStats = () => {
-    const zonaCount = {};
-    clientes.forEach(cliente => {
-      const zona = cliente.zona || 'Sin zona';
-      zonaCount[zona] = (zonaCount[zona] || 0) + 1;
-    });
-    
-    return Object.entries(zonaCount)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5);
+  // Función para obtener el nombre legible del estado
+  const getEstadoLabel = (estado) => {
+    const estados = {
+      'PEND_COBERTURA': 'Pendiente por cobertura',
+      'PEND_EQUIPO': 'Pendiente por equipo',
+      'PEND_INSTALACION': 'Pendiente por instalación',
+      'ACTIVO': 'Activo',
+      'SUSPENDIDO': 'Suspendido'
+    };
+    return estados[estado] || estado;
   };
 
-  const getTipoViviendaStats = () => {
-    const viviendaCount = { vivienda: 0, departamento: 0 };
-    clientes.forEach(cliente => {
-      if (cliente.tipo_vivienda) {
-        viviendaCount[cliente.tipo_vivienda]++;
-      }
-    });
-    return viviendaCount;
+  // Función para obtener el nombre legible del tipo de cliente
+  const getTipoClienteLabel = (tipo) => {
+    return tipo === 'COMUN' ? 'Usuario común' : 'Empresa';
   };
 
-  const getTipoServicioStats = () => {
-    const servicioCount = {};
-    clientes.forEach(cliente => {
-      const servicio = cliente.tipo_servicio_nombre || 'Sin servicio';
-      servicioCount[servicio] = (servicioCount[servicio] || 0) + 1;
-    });
-    
-    return Object.entries(servicioCount)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5);
+  // Función para obtener el nombre legible de la cobertura
+  const getCoberturaLabel = (cobertura) => {
+    return cobertura === 'CON_COBERTURA' ? 'Con cobertura' : 'Sin cobertura';
   };
 
-  const getRecentClientes = () => {
-    return clientes
-      .sort((a, b) => new Date(b.fecha_solicitud) - new Date(a.fecha_solicitud))
-      .slice(0, 5);
+  // Función para obtener el color según el estado
+  const getEstadoColor = (estado) => {
+    const colores = {
+      'PEND_COBERTURA': 'bg-amber-100 text-amber-800',
+      'PEND_EQUIPO': 'bg-blue-100 text-blue-800',
+      'PEND_INSTALACION': 'bg-purple-100 text-purple-800',
+      'ACTIVO': 'bg-green-100 text-green-800',
+      'SUSPENDIDO': 'bg-red-100 text-red-800',
+      'SIN_COBERTURA': 'bg-gray-100 text-gray-800',
+      'CON_COBERTURA': 'bg-cyan-100 text-cyan-800',
+      'COMUN': 'bg-indigo-100 text-indigo-800',
+      'EMPRESA': 'bg-pink-100 text-pink-800'
+    };
+    return colores[estado] || 'bg-gray-100 text-gray-800';
   };
 
   if (loading) {
     return (
-      <Card>
-        <CardBody>
-          <div className="flex justify-center items-center h-64">
-            <Typography>Cargando estadísticas...</Typography>
-          </div>
-        </CardBody>
-      </Card>
+      <div className="p-4">
+        <Card>
+          <CardBody>
+            <div className="flex justify-center items-center h-64">
+              <Typography variant="h6">Cargando estadísticas...</Typography>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Alert color="red">
-        Error al cargar estadísticas: {error}
-      </Alert>
+      <div className="p-4">
+        <Alert color="red">
+          <Typography variant="small" color="red">
+            {error}
+          </Typography>
+        </Alert>
+      </div>
     );
   }
 
-  const zonaStats = getZonaStats();
-  const tipoViviendaStats = getTipoViviendaStats();
-  const tipoServicioStats = getTipoServicioStats();
-  const recentClientes = getRecentClientes();
+  // Extraer datos para facilitar el acceso
+  const { resumen, por_estado, por_tipo, por_cobertura, top_zonas } = estadisticas;
 
   return (
-    <div className="space-y-6">
-      {/* Estadísticas principales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="border">
-          <CardBody className="text-center">
-            <UsersIcon className="h-12 w-12 text-blue-500 mx-auto mb-4" />
-            <Typography variant="h4" color="blue-gray">
-              {estadisticas?.total || 0}
-            </Typography>
-            <Typography variant="small" color="gray">
-              Total Clientes
-            </Typography>
+    <div className="p-4 space-y-6">
+      {/* Tarjetas de resumen */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+        {/* Total de Clientes */}
+        <Card className="hover:shadow-lg transition-shadow duration-300">
+          <CardBody className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Typography variant="small" color="blue-gray" className="font-normal">
+                  Total de Clientes
+                </Typography>
+                <Typography variant="h4" color="blue-gray" className="mt-1">
+                  {formatNumber(resumen.total_clientes || 0)}
+                </Typography>
+              </div>
+              <div className="p-3 rounded-full bg-blue-50">
+                <UsersIcon className="w-8 h-8 text-blue-500" />
+              </div>
+            </div>
           </CardBody>
         </Card>
 
-        <Card className="border">
-          <CardBody className="text-center">
-            <ClockIcon className="h-12 w-12 text-orange-500 mx-auto mb-4" />
-            <Typography variant="h4" color="orange">
-              {estadisticas?.pendientes || 0}
-            </Typography>
-            <Typography variant="small" color="gray">
-              Pendientes
-            </Typography>
+        {/* Clientes Activos */}
+        <Card className="hover:shadow-lg transition-shadow duration-300">
+          <CardBody className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Typography variant="small" color="blue-gray" className="font-normal">
+                  Clientes Activos
+                </Typography>
+                <div className="flex items-center gap-2">
+                  <Typography variant="h4" color="blue-gray" className="mt-1">
+                    {formatNumber(resumen.total_activos || 0)}
+                  </Typography>
+                  <span className="text-sm text-green-500">
+                    ({resumen.porcentaje_activos || 0}%)
+                  </span>
+                </div>
+              </div>
+              <div className="p-3 rounded-full bg-green-50">
+                <CheckCircleIcon className="w-8 h-8 text-green-500" />
+              </div>
+            </div>
           </CardBody>
         </Card>
 
-        <Card className="border">
-          <CardBody className="text-center">
-            <CheckCircleIcon className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <Typography variant="h4" color="green">
-              {estadisticas?.activos || 0}
-            </Typography>
-            <Typography variant="small" color="gray">
-              Activos
-            </Typography>
+        {/* Pendientes */}
+        <Card className="hover:shadow-lg transition-shadow duration-300">
+          <CardBody className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Typography variant="small" color="blue-gray" className="font-normal">
+                  Pendientes
+                </Typography>
+                <Typography variant="h4" color="blue-gray" className="mt-1">
+                  {formatNumber(resumen.total_pendientes || 0)}
+                </Typography>
+              </div>
+              <div className="p-3 rounded-full bg-amber-50">
+                <ClockIcon className="w-8 h-8 text-amber-500" />
+              </div>
+            </div>
           </CardBody>
         </Card>
 
-        <Card className="border">
-          <CardBody className="text-center">
-            <XCircleIcon className="h-12 w-12 text-red-500 mx-auto mb-4" />
-            <Typography variant="h4" color="red">
-              {estadisticas?.rechazados || 0}
-            </Typography>
-            <Typography variant="small" color="gray">
-              Rechazados
-            </Typography>
+        {/* Suspendidos */}
+        <Card className="hover:shadow-lg transition-shadow duration-300">
+          <CardBody className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Typography variant="small" color="blue-gray" className="font-normal">
+                  Suspendidos
+                </Typography>
+                <Typography variant="h4" color="blue-gray" className="mt-1">
+                  {formatNumber(resumen.total_suspendidos || 0)}
+                </Typography>
+              </div>
+              <div className="p-3 rounded-full bg-red-50">
+                <XCircleIcon className="w-8 h-8 text-red-500" />
+              </div>
+            </div>
           </CardBody>
         </Card>
       </div>
@@ -179,51 +228,33 @@ const EstadisticasPanel = ({ refreshTrigger }) => {
           </CardHeader>
           <CardBody>
             <div className="space-y-4">
-              <div>
-                <div className="flex justify-between mb-2">
-                  <Typography variant="small">Activos</Typography>
-                  <Typography variant="small">
-                    {estadisticas?.porcentaje_activos || 0}%
-                  </Typography>
+              {por_estado.map(({ estado, total }) => (
+                <div key={estado}>
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full ${getEstadoColor(estado).split(' ')[0]}`} />
+                      <Typography variant="small" className="font-medium">
+                        {getEstadoLabel(estado)}
+                      </Typography>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">{total}</span>
+                      <span className={`text-xs px-2 py-1 rounded-full ${getEstadoColor(estado)}`}>
+                        {((total / resumen.total_clientes) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                  <Progress 
+                    value={(total / resumen.total_clientes) * 100} 
+                    color={
+                      estado === 'ACTIVO' ? 'green' : 
+                      estado === 'SUSPENDIDO' ? 'red' : 
+                      estado.includes('PEND_') ? 'blue' : 'gray'
+                    } 
+                    size="lg"
+                  />
                 </div>
-                <Progress 
-                  value={estadisticas?.porcentaje_activos || 0} 
-                  color="green" 
-                  size="lg"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between mb-2">
-                  <Typography variant="small">Pendientes</Typography>
-                  <Typography variant="small">
-                    {estadisticas?.total > 0 ? 
-                      ((estadisticas?.pendientes / estadisticas?.total) * 100).toFixed(1) : 0}%
-                  </Typography>
-                </div>
-                <Progress 
-                  value={estadisticas?.total > 0 ? 
-                    (estadisticas?.pendientes / estadisticas?.total) * 100 : 0} 
-                  color="orange" 
-                  size="lg"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between mb-2">
-                  <Typography variant="small">Rechazados</Typography>
-                  <Typography variant="small">
-                    {estadisticas?.total > 0 ? 
-                      ((estadisticas?.rechazados / estadisticas?.total) * 100).toFixed(1) : 0}%
-                  </Typography>
-                </div>
-                <Progress 
-                  value={estadisticas?.total > 0 ? 
-                    (estadisticas?.rechazados / estadisticas?.total) * 100 : 0} 
-                  color="red" 
-                  size="lg"
-                />
-              </div>
+              ))}
             </div>
           </CardBody>
         </Card>
@@ -237,8 +268,8 @@ const EstadisticasPanel = ({ refreshTrigger }) => {
           </CardHeader>
           <CardBody>
             <div className="space-y-4">
-              {zonaStats.map(([zona, count], index) => (
-                <div key={zona} className="flex items-center justify-between">
+              {top_zonas.map(({ zona, total }, index) => (
+                <div key={zona || `zona-${index}`} className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex items-center justify-center w-8 h-8 bg-blue-100 rounded-full">
                       <Typography variant="small" color="blue" className="font-bold">
@@ -247,12 +278,12 @@ const EstadisticasPanel = ({ refreshTrigger }) => {
                     </div>
                     <div>
                       <Typography variant="small" className="font-medium">
-                        {zona}
+                        {zona || 'Sin zona especificada'}
                       </Typography>
                     </div>
                   </div>
                   <Typography variant="small" color="gray">
-                    {count} cliente{count !== 1 ? 's' : ''}
+                    {total} cliente{total !== 1 ? 's' : ''}
                   </Typography>
                 </div>
               ))}
@@ -260,116 +291,86 @@ const EstadisticasPanel = ({ refreshTrigger }) => {
           </CardBody>
         </Card>
 
-        {/* Tipo de Vivienda */}
+        {/* Distribución por Tipo de Cliente */}
         <Card>
           <CardHeader floated={false} shadow={false} className="rounded-none">
             <Typography variant="h6" color="blue-gray">
-              Tipo de Vivienda
+              Distribución por Tipo de Cliente
             </Typography>
           </CardHeader>
           <CardBody>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <HomeIcon className="h-8 w-8 text-green-500" />
-                  <Typography variant="small" className="font-medium">
-                    Viviendas
-                  </Typography>
+              {por_tipo.map(({ tipo_cliente, total }) => (
+                <div key={tipo_cliente}>
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-2">
+                      {tipo_cliente === 'COMUN' ? (
+                        <UserCircleIcon className="h-5 w-5 text-indigo-500" />
+                      ) : (
+                        <BuildingOffice2Icon className="h-5 w-5 text-pink-500" />
+                      )}
+                      <Typography variant="small" className="font-medium">
+                        {getTipoClienteLabel(tipo_cliente)}
+                      </Typography>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">{total}</span>
+                      <span className={`text-xs px-2 py-1 rounded-full ${getEstadoColor(tipo_cliente)}`}>
+                        {((total / resumen.total_clientes) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                  <Progress 
+                    value={(total / resumen.total_clientes) * 100} 
+                    color={tipo_cliente === 'COMUN' ? 'indigo' : 'pink'}
+                    size="lg"
+                  />
                 </div>
-                <Typography variant="small" color="gray">
-                  {tipoViviendaStats.vivienda} cliente{tipoViviendaStats.vivienda !== 1 ? 's' : ''}
-                </Typography>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <BuildingOfficeIcon className="h-8 w-8 text-blue-500" />
-                  <Typography variant="small" className="font-medium">
-                    Departamentos
-                  </Typography>
-                </div>
-                <Typography variant="small" color="gray">
-                  {tipoViviendaStats.departamento} cliente{tipoViviendaStats.departamento !== 1 ? 's' : ''}
-                </Typography>
-              </div>
+              ))}
             </div>
           </CardBody>
         </Card>
 
-        {/* Servicios más solicitados */}
+        {/* Distribución por Cobertura */}
         <Card>
           <CardHeader floated={false} shadow={false} className="rounded-none">
             <Typography variant="h6" color="blue-gray">
-              Servicios más Solicitados
+              Distribución por Cobertura
             </Typography>
           </CardHeader>
           <CardBody>
             <div className="space-y-4">
-              {tipoServicioStats.map(([servicio, count], index) => (
-                <div key={servicio} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 bg-purple-100 rounded-full">
-                      <Typography variant="small" color="purple" className="font-bold">
-                        {index + 1}
+              {por_cobertura.map(({ cobertura, total }) => (
+                <div key={cobertura}>
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-2">
+                      {cobertura === 'CON_COBERTURA' ? (
+                        <ShieldCheckIcon className="h-5 w-5 text-cyan-500" />
+                      ) : (
+                        <XCircleIcon className="h-5 w-5 text-gray-500" />
+                      )}
+                      <Typography variant="small" className="font-medium">
+                        {getCoberturaLabel(cobertura)}
                       </Typography>
                     </div>
-                    <Typography variant="small" className="font-medium">
-                      {servicio}
-                    </Typography>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">{total}</span>
+                      <span className={`text-xs px-2 py-1 rounded-full ${getEstadoColor(cobertura)}`}>
+                        {((total / resumen.total_clientes) * 100).toFixed(1)}%
+                      </span>
+                    </div>
                   </div>
-                  <Typography variant="small" color="gray">
-                    {count} solicitud{count !== 1 ? 'es' : ''}
-                  </Typography>
+                  <Progress 
+                    value={(total / resumen.total_clientes) * 100} 
+                    color={cobertura === 'CON_COBERTURA' ? 'cyan' : 'gray'}
+                    size="lg"
+                  />
                 </div>
               ))}
             </div>
           </CardBody>
         </Card>
       </div>
-
-      {/* Clientes recientes */}
-      <Card>
-        <CardHeader floated={false} shadow={false} className="rounded-none">
-          <Typography variant="h6" color="blue-gray">
-            Últimas Solicitudes
-          </Typography>
-        </CardHeader>
-        <CardBody>
-          <div className="space-y-4">
-            {recentClientes.map((cliente) => (
-              <div key={cliente.id} className="flex items-center justify-between p-3 border rounded-lg">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center justify-center w-10 h-10 bg-gray-100 rounded-full">
-                    <Typography variant="small" className="font-bold">
-                      {cliente.nombre.charAt(0)}{cliente.apellido.charAt(0)}
-                    </Typography>
-                  </div>
-                  <div>
-                    <Typography variant="small" className="font-medium">
-                      {cliente.nombre} {cliente.apellido}
-                    </Typography>
-                    <Typography variant="small" color="gray">
-                      {cliente.zona} - {cliente.email}
-                    </Typography>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <Typography variant="small" color="gray">
-                    {new Date(cliente.fecha_solicitud).toLocaleDateString('es-ES')}
-                  </Typography>
-                  <Typography variant="small" className={`font-medium ${
-                    cliente.estado === 'activo' ? 'text-green-600' :
-                    cliente.estado === 'pendiente' ? 'text-orange-600' :
-                    'text-red-600'
-                  }`}>
-                    {cliente.estado_display}
-                  </Typography>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
     </div>
   );
 };
