@@ -42,7 +42,7 @@ import {
   COBERTURA_CHOICES, 
   TIPO_CLIENTE_CHOICES, 
   VIVIENDA_CHOICES 
-} from '../solicitud/services/servi';
+} from './services/servi';
 
 /**
  * Funciones auxiliares para obtener información de estados y tipos

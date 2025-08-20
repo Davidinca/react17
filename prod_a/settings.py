@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'almacenes',
     'contratos',
     'planes',
+    'solicitud',
     
     
 

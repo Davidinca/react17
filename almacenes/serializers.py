@@ -5,7 +5,7 @@ from django.db import transaction
 from rest_framework import serializers
 from .models import (
     Marca, TipoEquipo, Componente, EstadoEquipo, Modelo,
-    ModeloComponente, Lote, LoteDetalle, EquipoONU, EquipoServicio
+    ModeloComponente, Lote, LoteDetalle, EquipoONU, EquipoServicio, SolicitudEquipoONU
 )
 
 
@@ -316,3 +316,9 @@ class EquipoServicioSerializer(serializers.ModelSerializer):
             'estado_asignacion', 'observaciones', 'created_at', 'updated_at'
         ]
         read_only_fields = ['fecha_asignacion', 'created_at', 'updated_at']
+
+
+class SolicitudEquipoONUSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SolicitudEquipoONU
+        fields = '__all__'

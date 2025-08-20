@@ -1,6 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Collapse } from '@material-tailwind/react';
 
+// Custom toast function to replace react-toastify
+const toast = {
+  success: (message) => {
+    alert(`Éxito: ${message}`);
+    console.log(`Success: ${message}`);
+  },
+  error: (message) => {
+    alert(`Error: ${message}`);
+    console.error(`Error: ${message}`);
+  },
+  info: (message) => {
+    alert(`Información: ${message}`);
+    console.log(`Info: ${message}`);
+  },
+  warning: (message) => {
+    alert(`Advertencia: ${message}`);
+    console.warn(`Warning: ${message}`);
+  }
+};
+
 import {
   Card,
   CardBody,
@@ -20,7 +40,7 @@ import {
 import { useLeafletMap } from './hooks/useLeafletMap';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { clienteService, planService } from '../solicitud/services/servi';
+import { clienteService, planService } from './services/servi.js';
 import { validateCliente } from './utils/validations';
 import { jsPDF } from 'jspdf';
 import { 
@@ -52,7 +72,7 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
   // GENERACIÓN DE PDF
   // ===========================================
 
-  const generarPDF = () => {
+  const generarPDF = (cliente, solicitud, contrato) => {
     // Crear una nueva instancia de jsPDF
     const doc = new jsPDF();
     
@@ -123,50 +143,81 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
     doc.text('COTEL', pageWidth / 2, yPos, { align: 'center' });
     
     doc.setFontSize(18);
-    doc.text('CONTRATO DE SERVICIO', pageWidth / 2, yPos + 15, { align: 'center' });
+    doc.text('CONTRATO DE SERVICIO DE INTERNET', pageWidth / 2, yPos + 15, { align: 'center' });
     
     doc.setFontSize(12);
     doc.setTextColor(0, 0, 0); // Negro
-    doc.text(`Fecha: ${new Date().toLocaleDateString()}`, margin, yPos + 30);
+    doc.text(`N° Contrato: ${contrato?.CONTRATO_INTERNET || 'N/A'}`, margin, yPos + 30);
+    doc.text(`Fecha: ${new Date().toLocaleDateString()}`, pageWidth - margin, yPos + 30, { align: 'right' });
     
     yPos += 50;
 
-    // Sección de Datos Personales
-    const datosPersonalesItems = [
-      ['Nombres:', datosPersonales.nombre],
-      ['Apellidos:', datosPersonales.apellido],
-      ['CI/NIT:', datosPersonales.ci || datosPersonales.nit],
-      ['Teléfono:', datosPersonales.telefono],
-      ['Email:', datosPersonales.email],
-      ['Tipo de Cliente:', datosPersonales.tipo_cliente]
+    // Sección de Datos del Cliente
+    const datosClienteItems = [
+      ['Código de Cliente:', cliente.COD_CLIENTE || 'N/A'],
+      ['Nombres:', cliente.NOMBRE || ''],
+      ['Apellidos:', cliente.APELLIDO || ''],
+      ['CI/NIT:', cliente.NIT || 'No especificado'],
+      ['Teléfono:', cliente.TELEFONO || 'No especificado'],
+      ['Email:', cliente.EMAIL || 'No especificado'],
+      ['Tipo de Cliente:', cliente.TIPO_CLIENTE === 'NATURAL' ? 'Persona Natural' : 'Empresa']
     ];
     
-    yPos = addSection('DATOS PERSONALES', datosPersonalesItems, yPos);
+    if (cliente.TIPO_CLIENTE === 'JURIDICO' && cliente.RAZON_SOCIAL) {
+      datosClienteItems.push(['Razón Social:', cliente.RAZON_SOCIAL]);
+    }
+    
+    yPos = addSection('DATOS DEL CLIENTE', datosClienteItems, yPos);
 
-    // Sección de Ubicación
+    // Sección de Ubicación del Servicio
     const ubicacionItems = [
-      ['Dirección:', datosUbicacion.direccion_completa],
-      ['Zona:', datosUbicacion.zona],
-      ['Calle:', datosUbicacion.calle],
-      ['Número de puerta:', datosUbicacion.numero_puerta],
-      ['Tipo de vivienda:', datosUbicacion.vivienda],
-      ['Piso:', datosUbicacion.piso || 'N/A'],
-      ['Referencias:', datosUbicacion.referencias || 'Ninguna']
+      ['Dirección:', cliente.DIRECCION_COMPLETA || 'No especificada'],
+      ['Zona:', cliente.ZONA || 'No especificada'],
+      ['Calle:', cliente.CALLE || 'No especificada'],
+      ['Tipo de Vivienda:', cliente.VIVIENDA || 'No especificado'],
+      ['Referencias:', cliente.REFERENCIAS || 'Ninguna']
     ];
     
-    yPos = addSection('UBICACIÓN', ubicacionItems, yPos);
+    yPos = addSection('UBICACIÓN DEL SERVICIO', ubicacionItems, yPos);
 
-    // Sección del Plan
-    const planSeleccionado = planes.find(p => p.id === datosPlan.plan_id) || {};
-    const planItems = [
-      ['Plan:', planSeleccionado.descripcion || 'No seleccionado'],
-      ['Código:', planSeleccionado.codigo || 'N/A'],
-      ['Tipo de servicio:', datosPlan.tipo_servicio || 'No especificado'],
-      ['Fecha de instalación:', datosPlan.fecha_instalacion || 'Por programar'],
-      ['Estado de cobertura:', cobertura === 'CON_COBERTURA' ? 'Con Cobertura' : 'Sin Cobertura']
+    // Sección de Detalles del Servicio
+    const servicioItems = [
+      ['Tipo de Conexión:', solicitud?.TIPO_CONEXION || 'No especificado'],
+      ['Fecha de Solicitud:', solicitud?.F_SOLICITUD || 'No especificada'],
+      ['Estado de Cobertura:', solicitud?.COBERTURA ? 'Con Cobertura' : 'Sin Cobertura']
     ];
     
-    yPos = addSection('DETALLES DEL PLAN', planItems, yPos);
+    if (contrato) {
+      servicioItems.push(
+        ['Usuario:', contrato.USERNAME || 'No asignado'],
+        ['Contraseña:', '••••••••'],
+        ['Estado del Contrato:', 'Activo']
+      );
+    }
+    
+    yPos = addSection('DETALLES DEL SERVICIO', servicioItems, yPos);
+
+    // Términos y Condiciones
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text('TÉRMINOS Y CONDICIONES', margin, yPos);
+    yPos += 10;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const terminos = [
+      '1. El presente contrato tiene una duración mínima de 12 meses.',
+      '2. El cliente se compromete a realizar el pago puntual del servicio.',
+      '3. Cualquier daño intencional al equipo será cobrado al cliente.',
+      '4. La velocidad del servicio está sujeta a disponibilidad técnica.',
+      '5. Para más información, contactar con atención al cliente.'
+    ];
+    
+    terminos.forEach(termino => {
+      doc.text(termino, margin, yPos);
+      yPos += 5;
+    });
+    yPos += 10;
 
     // Firma
     const firmaY = Math.max(yPos, 250); // Asegurar que esté abajo en la página
@@ -179,7 +230,7 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
     doc.text('Representante COTEL', pageWidth - margin - 40, firmaY + 10, { align: 'center' });
 
     // Guardar el PDF
-    doc.save(`contrato_${datosPersonales.nombre || 'cliente'}_${datosPersonales.apellido || ''}.pdf`);
+    doc.save(`contrato_${cliente.COD_CLIENTE || 'cliente'}.pdf`);
   };
 
   // ===========================================
@@ -195,36 +246,67 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState(new Set());
 
-  // Estados para cada paso del formulario
+  // Estados para manejar el formulario
   const [datosPersonales, setDatosPersonales] = useState({
-    nombre: '',
-    apellido: '',
-    ci: '',
-    email: '',
-    telefono: '',
-    tipo_cliente: 'COMUN',
-    nit: '',
-    razon_social: ''
+    COD_CLIENTE: '',
+    NOMBRE: '',
+    APELLIDO: '',
+    TELEFONO: '',
+    EMAIL: '',
+    TIPO_CLIENTE: 'NATURAL',
+    NIT: '',
+    RAZON_SOCIAL: ''
   });
+
+  // Función auxiliar para asignar equipo ONU
+  const asignarEquipoONU = async (solicitudId) => {
+    try {
+      // Verificar stock de equipos ONU disponibles
+      const response = await apiClient.get('/api/almacenes/equipos/disponibles', {
+        params: { tipo: 'ONU', estado: 'DISPONIBLE' }
+      });
+      
+      if (response.data && response.data.length > 0) {
+        const equipo = response.data[0];
+        
+        // Actualizar estado del equipo a ASIGNADO
+        await apiClient.patch(`/api/almacenes/equipos/${equipo.id}/`, {
+          estado: 'ASIGNADO',
+          solicitud_id: solicitudId
+        });
+        
+        return equipo;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error al asignar equipo ONU:', error);
+      return null;
+    }
+  };
 
   const [datosUbicacion, setDatosUbicacion] = useState({
-    vivienda: 'Casa',
-    piso: '',
-    calle: '',
-    zona: '',
-    numero_puerta: '',
-    direccion_completa: '',
-    referencias: '',
-    latitud: '',
-    longitud: '',
-    cobertura: ''
+    VIVIENDA: 'Casa',
+    CALLE: '',
+    ZONA: '',
+    DIRECCION_COMPLETA: '',
+    REFERENCIAS: '',
+    LATITUD: '',
+    LONGITUD: ''
   });
 
-  const [datosPlan, setDatosPlan] = useState({
-    plan_id: '',
-    observaciones: '',
-    tipo_servicio: 'INTERNET',
-    fecha_instalacion: ''
+  const [datosSolicitud, setDatosSolicitud] = useState({
+    COD_TIPO_TRABAJO: '101',  // Valor por defecto
+    COD_TIPO_PLAN: '',
+    COD_FORMA_PAGO: '301',    // Valor por defecto
+    COD_CATEGORIA: '401',     // Valor por defecto
+    COD_TIPO_PAGO: '501',     // Valor por defecto
+    TIPO_CONEXION: 'FIBRA',   // Valor por defecto
+    OBSERVACIONES: ''
+  });
+
+  const [equipo, setEquipo] = useState({
+    EQUIPO_ID: '',
+    ESTADO_ASIGNACION: 'PENDIENTE'
   });
 
   // ===========================================
@@ -607,47 +689,6 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        
-        try {
-          // Centrar el mapa en la ubicación actual
-          centerMap(latitude, longitude, 18);
-          
-          // Limpiar marcadores anteriores
-          clearMarkers();
-          
-          // Hacer zoom al marcador
-          mapRef.current.flyTo([latitude, longitude], 18);
-          
-          // Limpiar marcadores anteriores
-          clearMarkers();
-          
-          // Agregar nuevo marcador con manejador de arrastre
-          createMarker(
-            { lat: latitude, lng: longitude },
-            {
-              draggable: true,
-              title: 'Ubicación actual',
-              riseOnHover: true,
-              onDragEnd: async (newPosition) => {
-                await actualizarDireccionDesdeCoordenadas(newPosition.lat, newPosition.lng);
-              }
-            }
-          );
-          
-          // Actualizar dirección usando la función centralizada
-          await actualizarDireccionDesdeCoordenadas(latitude, longitude);
-          
-        } catch (error) {
-          console.error('Error al obtener la ubicación:', error);
-          alert('No se pudo obtener la dirección de la ubicación seleccionada');
-        } finally {
-          setLoading(false);
-        }
-      },
-      (error) => {
-        console.error('Error al obtener la ubicación:', error);
-        alert('No se pudo obtener tu ubicación. Asegúrate de haber concedido los permisos necesarios.');
-        setLoading(false);
       },
       {
         enableHighAccuracy: true,
@@ -776,81 +817,241 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
     return Math.round(num * factor) / factor;
   };
 
+  // Función para generar un código de cliente único
+  const generarCodigoCliente = () => {
+    const random = Math.floor(1000 + Math.random() * 9000);
+    return `CLI-${Date.now()}-${random}`;
+  };
+
   const handleSubmit = async () => {
     setLoading(true);
+    setErrors({});
+    
     try {
-      console.log('Datos de ubicación originales:', datosUbicacion);
+      // 1. Validar datos requeridos
+      const requiredFields = {
+        ...datosPersonales,
+        ...datosUbicacion,
+        ...datosSolicitud
+      };
       
-      // Crear una copia de los datos de ubicación para no modificar el estado directamente
+      const missingFields = [];
+      Object.entries(requiredFields).forEach(([key, value]) => {
+        if (!value && key !== 'COD_CLIENTE' && key !== 'OBSERVACIONES' && key !== 'REFERENCIAS') {
+          missingFields.push(key);
+        }
+      });
+      
+      if (missingFields.length > 0) {
+        toast.error(`Faltan campos requeridos: ${missingFields.join(', ')}`);
+        setLoading(false);
+        return;
+      }
+      
+      // 2. Registrar Cliente
+      const clienteData = {
+        ...datosPersonales,
+        COD_CLIENTE: datosPersonales.COD_CLIENTE || generarCodigoCliente(),
+        ...datosUbicacion,
+        FECHA_REGISTRO: new Date().toISOString()
+      };
+      
+      // Guardar cliente
+      const savedCliente = await clienteService.create(clienteData);
+      
+      // 3. Crear Solicitud
+      const solicitudData = {
+        ...datosSolicitud,
+        COD_CLIENTE: savedCliente.COD_CLIENTE,
+        F_SOLICITUD: new Date().toISOString().split('T')[0],
+        COBERTURA: cobertura === 'CON_COBERTURA' ? 1 : 0,
+        COD_ESTADO: cobertura === 'CON_COBERTURA' ? 1001 : 1000 // 1001: Pendiente Instalación, 1000: Pendiente Revisión
+      };
+      
+      const savedSolicitud = await apiClient.post('/api/solicitudes', solicitudData);
+      
+      // 4. Si hay cobertura, asignar equipo y generar contrato
+      if (cobertura === 'CON_COBERTURA') {
+        // 4.1 Asignar Equipo ONU
+        const equipoAsignado = await asignarEquipoONU(savedSolicitud.SOLICITUD);
+        
+        if (equipoAsignado) {
+          // 4.2 Generar Contrato
+          const contratoData = {
+            USERNAME: `${savedCliente.NOMBRE.toLowerCase().charAt(0)}${savedCliente.APELLIDO.toLowerCase()}`,
+            CLAVE: `cotel${Math.floor(1000 + Math.random() * 9000)}`,
+            COD_CLIENTE: savedCliente.COD_CLIENTE,
+            SOLICITUD: savedSolicitud.SOLICITUD,
+            F_CONTRATO: new Date().toISOString().split('T')[0],
+            COD_ESTADO_CONTRATO: 2001, // Activo
+            ...datosSolicitud
+          };
+          
+          const savedContrato = await apiClient.post('/api/contratos', contratoData);
+          
+          // 4.3 Asignar equipo al contrato
+          if (savedContrato) {
+            await apiClient.post('/api/almacenes/equipos-asignados', {
+              EQUIPO_ID: equipoAsignado.EQUIPO_ID,
+              CONTRATO_INTERNET: savedContrato.CONTRATO_INTERNET,
+              FECHA_ASIGNACION: new Date().toISOString().split('T')[0],
+              ESTADO_ASIGNACION: 'ASIGNADO'
+            });
+          }
+          
+          // 4.4 Actualizar seguimiento
+          await apiClient.post('/api/seguimiento', {
+            SOLICITUD: savedSolicitud.SOLICITUD,
+            COD_ESTADO: 1002, // Activo
+            F_INICIO: new Date().toISOString().split('T')[0],
+            USER_INICIO: 'SISTEMA',
+            NRO_SEGUIMIENTO: 1
+          });
+          
+          // Generar PDF del contrato
+          generarPDF(savedCliente, savedSolicitud, savedContrato);
+        }
+      }
+      
+      // Llamar a la función de guardado proporcionada por el componente padre
+      onSave(savedCliente);
+      
+      // Mostrar mensaje de éxito
+      toast.success('Solicitud procesada exitosamente');
+      
+    } catch (error) {
+      console.error('Error en el proceso de registro:', error);
+      toast.error(`Error al procesar la solicitud: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+    
+    try {
+      // 1. Preparar datos del cliente
       const ubicacionAjustada = { ...datosUbicacion };
       
-      // Asegurarse de que los campos obligatorios tengan valores por defecto
+      // Asegurar valores por defecto para ubicación
       ubicacionAjustada.numero_puerta = datosUbicacion.numero_puerta || 'S/N';
       ubicacionAjustada.calle = datosUbicacion.calle || 'S/N';
       ubicacionAjustada.zona = datosUbicacion.zona || 'No especificada';
       ubicacionAjustada.direccion_completa = datosUbicacion.direccion_completa || 
         `${ubicacionAjustada.calle}, ${ubicacionAjustada.zona}, La Paz, Bolivia`;
       
-      // Ajustar precisión de latitud y longitud
+      // Ajustar precisión de coordenadas
       if (datosUbicacion.latitud) {
-        const latAjustada = ajustarPrecisionCoordenada(datosUbicacion.latitud);
-        console.log(`Latitud ajustada: ${datosUbicacion.latitud} -> ${latAjustada}`);
-        ubicacionAjustada.latitud = latAjustada;
-      } else {
-        ubicacionAjustada.latitud = null;
+        ubicacionAjustada.latitud = ajustarPrecisionCoordenada(datosUbicacion.latitud);
       }
-      
       if (datosUbicacion.longitud) {
-        const lngAjustada = ajustarPrecisionCoordenada(datosUbicacion.longitud);
-        console.log(`Longitud ajustada: ${datosUbicacion.longitud} -> ${lngAjustada}`);
-        ubicacionAjustada.longitud = lngAjustada;
-      } else {
-        ubicacionAjustada.longitud = null;
+        ubicacionAjustada.longitud = ajustarPrecisionCoordenada(datosUbicacion.longitud);
       }
-      
-      console.log('Ubicación ajustada:', ubicacionAjustada);
 
-      // Preparar datos completos del cliente
-      const formData = {
+      // 2. Crear/Actualizar cliente
+      const clienteData = {
         ...datosPersonales,
         ...ubicacionAjustada,
-        observaciones: datosPlan.observaciones || '',
-        estado: cobertura === 'CON_COBERTURA' ? CLIENTE_ESTADOS.PEND_EQUIPO : CLIENTE_ESTADOS.PEND_COBERTURA,
-        cobertura: cobertura
+        estado: cobertura === 'CON_COBERTURA' ? 'PENDIENTE' : 'PENDIENTE_COBERTURA',
+        cobertura: cobertura,
+        plan_id: cobertura === 'CON_COBERTURA' ? datosPlan.plan_id : null
       };
 
-      // Incluir plan_id como null si no hay cobertura, o con el valor correspondiente si hay cobertura
-      formData.plan_id = cobertura === 'CON_COBERTURA' ? datosPlan.plan_id : null;
-      
-      // Limpiar el objeto antes de enviar
-      Object.keys(formData).forEach(key => {
-        // Convertir cadenas vacías a null
-        if (formData[key] === '') {
-          formData[key] = null;
+      // Limpiar datos vacíos
+      Object.keys(clienteData).forEach(key => {
+        if (clienteData[key] === '') {
+          clienteData[key] = null;
         }
-        // Eliminar campos que no deben ser enviados como null
-        if (formData[key] === null && key !== 'latitud' && key !== 'longitud') {
-          delete formData[key];
+        if (clienteData[key] === null && !['latitud', 'longitud', 'plan_id'].includes(key)) {
+          delete clienteData[key];
         }
       });
 
-      let result;
+      let cliente;
       if (isEditing && cliente) {
-        // Actualizar cliente existente
-        result = await clienteService.update(cliente.id, formData);
+        cliente = await clienteService.update(cliente.id, clienteData);
       } else {
-        // Crear nuevo cliente
-        result = await clienteService.create(formData);
+        cliente = await clienteService.create(clienteData);
       }
 
-      onSave(result);
+      // 3. Si hay cobertura, crear solicitud
+      if (cobertura === 'CON_COBERTURA') {
+        // Crear solicitud
+        const solicitudData = {
+          cliente_id: cliente.id,
+          plan_id: datosPlan.plan_id,
+          tipo_trabajo_id: 1, // ID para instalación nueva
+          estado_id: 1, // Estado inicial: Pendiente
+          fecha_solicitud: new Date().toISOString().split('T')[0],
+          observaciones: datosPlan.observaciones || '',
+          direccion_instalacion: ubicacionAjustada.direccion_completa,
+          latitud: ubicacionAjustada.latitud,
+          longitud: ubicacionAjustada.longitud
+        };
+
+        const solicitud = await solicitudService.create(solicitudData);
+
+        // 4. Verificar stock de equipos ONU
+        try {
+          // Asignar equipo ONU si hay stock
+          const equipoAsignado = await asignarEquipoONU(solicitud.id);
+          
+          if (equipoAsignado) {
+            // 5. Si se asignó equipo, crear contrato
+            const contratoData = {
+              solicitud_id: solicitud.id,
+              cliente_id: cliente.id,
+              plan_id: datosPlan.plan_id,
+              equipo_id: equipoAsignado.id,
+              fecha_inicio: new Date().toISOString().split('T')[0],
+              estado: 'ACTIVO',
+              direccion_instalacion: ubicacionAjustada.direccion_completa
+            };
+
+            const contrato = await contratoService.create(contratoData);
+            
+            // 6. Actualizar seguimiento
+            await seguimientoService.crearSeguimiento(
+              solicitud.id,
+              2, // Estado: En proceso
+              null // userId se obtendrá del token
+            );
+            
+            // Notificar éxito completo
+            toast.success('Cliente registrado y proceso de instalación iniciado con éxito');
+          } else {
+            // No hay stock, solo actualizar seguimiento
+            await seguimientoService.crearSeguimiento(
+              solicitud.id,
+              3, // Estado: En espera de equipo
+              null
+            );
+            
+            toast.warning('Cliente registrado, pero no hay equipos disponibles. Se notificará cuando haya stock.');
+          }
+        } catch (error) {
+          console.error('Error en flujo de instalación:', error);
+          // Continuar aunque falle la asignación de equipo
+          toast.warning('Cliente registrado, pero hubo un error en el proceso de instalación.');
+        }
+      } else {
+        // Sin cobertura, solo notificar
+        toast.info('Cliente registrado. Se notificará cuando el servicio esté disponible en su zona.');
+      }
+
+      // Cerrar el formulario con éxito
+      onSave(cliente);
+      
     } catch (error) {
+      console.error('Error en el proceso de registro:', error);
+      
       // Manejar errores de validación
       if (error.fieldErrors) {
         setErrors(error.fieldErrors);
       } else {
-        setErrors({ general: error.message });
+        setErrors({ 
+          general: error.message || 'Error al procesar la solicitud. Por favor, intente nuevamente.' 
+        });
       }
+      
+      toast.error('Error al guardar los datos del cliente');
     } finally {
       setLoading(false);
     }

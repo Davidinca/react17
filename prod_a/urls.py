@@ -31,6 +31,7 @@ urlpatterns = [
     path('api/almacenes/', include('almacenes.urls')),
     path('api/contratos/', include('contratos.urls')),
     path('api/planes/', include('planes.urls')),
+    path('api/solicitud/', include('solicitud.urls')),  # <-- nombre correcto de tu app
 
 
 

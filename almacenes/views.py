@@ -10,13 +10,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Q
 from .models import (
     Marca, TipoEquipo, Componente, EstadoEquipo, Modelo,
-    Lote, LoteDetalle, EquipoONU, EquipoServicio, ModeloComponente
+    Lote, LoteDetalle, EquipoONU, EquipoServicio, ModeloComponente, SolicitudEquipoONU
 )
 from .serializers import (
     MarcaSerializer, TipoEquipoSerializer, ComponenteSerializer,
     EstadoEquipoSerializer, ModeloSerializer, LoteSerializer,
     LoteCreateSerializer, LoteDetalleSerializer, EquipoONUSerializer,
-    EquipoONUListSerializer, EquipoServicioSerializer, ModeloComponenteSerializer
+    EquipoONUListSerializer, EquipoServicioSerializer, ModeloComponenteSerializer,
+    SolicitudEquipoONUSerializer
 )
 
 
@@ -418,3 +419,8 @@ class EquipoONUViewSet(viewsets.ModelViewSet):
         asignaciones = equipo.equiposervicio_set.all().order_by('-fecha_asignacion')
         serializer = EquipoServicioSerializer(asignaciones, many=True)
         return Response(serializer.data)
+
+class SolicitudEquipoONUViewSet(viewsets.ModelViewSet):
+    queryset = SolicitudEquipoONU.objects.all()
+    serializer_class = SolicitudEquipoONUSerializer
+        

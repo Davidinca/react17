@@ -2,7 +2,7 @@
 import React from 'react';
 import { Button, Card, CardBody, Typography } from "@material-tailwind/react";
 import { UsersIcon } from '@heroicons/react/24/outline';
-import ClienteDashboard from './components/maps/ClienteDashboard';
+import ClienteDashboard from './components/solicitud/ClienteDashboard';
 
 function App() {
   const [showClientes, setShowClientes] = React.useState(false);

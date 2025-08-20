@@ -28,7 +28,7 @@ import ClienteList from './ClienteList';
 import ClienteDetail from './ClienteDetail';
 import EstadisticasPanel from './EstadisticasPanel';
 import MapaGeneral from './MapaGeneral';
-import { clienteService } from '../solicitud/services/servi';
+import { clienteService } from './services/servi';
 
 const ClienteDashboard = () => {
   const [activeTab, setActiveTab] = useState('lista');
