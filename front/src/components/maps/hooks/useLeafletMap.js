@@ -43,6 +43,16 @@ export const useLeafletMap = () => {
   // Inicializar el mapa
   const initializeMap = useCallback((mapElement, options = {}) => {
     if (!mapElement) return null;
+    
+    // Limpiar instancia anterior si existe
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.off();
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    // Limpiar marcadores
+    clearMarkers();
 
     // Configuración por defecto
     const defaultOptions = {
@@ -57,13 +67,25 @@ export const useLeafletMap = () => {
       const map = L.map(mapElement, {
         center: defaultOptions.center,
         zoom: defaultOptions.zoom,
-        zoomControl: defaultOptions.zoomControl
+        zoomControl: defaultOptions.zoomControl,
+        // Prevenir conflictos entre instancias
+        tap: false,
+        touchZoom: 'center',
+        scrollWheelZoom: 'center'
       });
 
       // Añadir capa de OpenStreetMap
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        // Prevenir caché de tiles
+        noCache: true
       }).addTo(map);
+
+      // Manejar eventos de error
+      map.on('error', (error) => {
+        console.error('Error en el mapa:', error);
+        setLoadError('Error en el mapa');
+      });
 
       mapInstanceRef.current = map;
       return map;
@@ -121,10 +143,22 @@ export const useLeafletMap = () => {
 
   // Limpiar marcadores
   const clearMarkers = useCallback(() => {
-    markersRef.current.forEach(marker => {
-      mapInstanceRef.current?.removeLayer(marker);
-    });
-    markersRef.current = [];
+    try {
+      markersRef.current.forEach(marker => {
+        try {
+          if (marker && typeof marker.remove === 'function') {
+            marker.remove();
+          } else if (marker && marker._map) {
+            marker._map.removeLayer(marker);
+          }
+        } catch (error) {
+          console.warn('Error al limpiar marcador:', error);
+        }
+      });
+      markersRef.current = [];
+    } catch (error) {
+      console.error('Error en clearMarkers:', error);
+    }
   }, []);
 
   // Crear ventana de información
@@ -434,16 +468,47 @@ export const useLeafletMap = () => {
     };
   }, []);
 
-  // Limpieza al desmontar
-  useEffect(() => {
-    return () => {
+  // Función para limpiar el mapa
+  const cleanupMap = useCallback(() => {
+    try {
       clearMarkers();
+      
       if (mapInstanceRef.current) {
+        // Eliminar todos los eventos del mapa
+        mapInstanceRef.current.off();
+        
+        // Eliminar todas las capas del mapa
+        mapInstanceRef.current.eachLayer(layer => {
+          try {
+            if (layer && layer.remove) {
+              layer.remove();
+            }
+          } catch (e) {
+            console.warn('Error al eliminar capa:', e);
+          }
+        });
+        
+        // Eliminar el contenedor del mapa
+        const container = mapInstanceRef.current.getContainer();
+        if (container && container._leaflet_pos) {
+          container._leaflet_pos = null;
+        }
+        
+        // Eliminar la instancia del mapa
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
-    };
+    } catch (error) {
+      console.error('Error en cleanupMap:', error);
+    }
   }, [clearMarkers]);
+
+  // Limpieza al desmontar
+  useEffect(() => {
+    return () => {
+      cleanupMap();
+    };
+  }, [cleanupMap]);
 
   return {
     isLoaded,

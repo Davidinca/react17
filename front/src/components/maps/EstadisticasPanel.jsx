@@ -21,7 +21,7 @@ import {
   UserCircleIcon,
   BuildingOffice2Icon
 } from '@heroicons/react/24/outline';
-import { clienteService } from '../solicitud/services/servi';
+import { clienteService } from '../maps/services/apiService';
 
 // Función para formatear números con separadores de miles
 const formatNumber = (num) => {

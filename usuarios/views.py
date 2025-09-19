@@ -346,7 +346,6 @@ class UsuarioManualViewSet(ModelViewSet):
     """
     ViewSet para gestión de usuarios manuales
     """
-    permission_classes = [IsAuthenticated, GenericRolePermission]
     basename = 'usuarios'
 
     def get_queryset(self):

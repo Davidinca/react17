@@ -87,3 +87,50 @@ class Cliente(models.Model):
             self.razon_social = None
 
         super().save(*args, **kwargs)
+
+from django.db import models
+
+from django.db import models
+
+class Cobfactu(models.Model):
+    cod_concesion = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    factura_interna = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    cod_dosificacion = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    contrato = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    periodo_desde = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    periodo_hasta = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    telefono = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    fecha_envio = models.DateField(null=True, blank=True)
+    fecha_emision = models.DateField(null=True, blank=True)
+    periodo = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    monto_total = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    cod_mensaje = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    monto_cf = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    numero_renta = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    monto_cotel = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    monto_cotel_cf = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    nombre_factura = models.CharField(max_length=100, null=True, blank=True)
+    ruc_factura = models.CharField(max_length=12, null=True, blank=True)
+    no_autorizacion = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    f_limite = models.CharField(max_length=10, null=True, blank=True)
+    cod_control = models.CharField(max_length=16, null=True, blank=True)
+    estado = models.CharField(max_length=2, null=True, blank=True)
+    movimiento = models.CharField(max_length=2, null=True, blank=True)
+    f_actualizacion = models.DateField(null=True, blank=True)
+    id_transaccion = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True)
+    estado_transac = models.CharField(max_length=1, null=True, blank=True)
+
+    class Meta:
+        db_table = 'cobfactu'
+        managed = False  # Para tablas externas/foreign tables
+
+    def __str__(self):
+        return f"Factura {self.factura_interna} - {self.nombre_factura}"
+
+
+
+
+
+
+
+

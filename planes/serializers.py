@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import FormaPago, TipoConexion, Plan, Cliente
+from .models import FormaPago, TipoConexion, Plan, Cliente, Cobfactu
 
 class FormaPagoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -49,3 +49,14 @@ class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cliente
         fields = '__all__'
+
+
+class CobfactuSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cobfactu
+        fields = '__all__'
+
+
+
+
+

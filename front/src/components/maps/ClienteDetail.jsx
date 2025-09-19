@@ -106,48 +106,57 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
     }
   }, [cliente]);
 
-  // Inicializar mapa cuando el componente se monta
+  // Inicializar mapa cuando el componente se monta o se actualizan los datos
   useEffect(() => {
-    if (isLoaded && mapContainerRef.current && clienteData) {
-      // Configurar el mapa con la ubicación del cliente
-      const map = initializeMap(mapContainerRef.current, {
-        center: clienteData?.latitud && clienteData?.longitud 
-          ? [parseFloat(clienteData.latitud), parseFloat(clienteData.longitud)]
-          : [-16.5000, -68.1193],
-        zoom: 15
+    if (!isLoaded || !mapContainerRef.current || !clienteData) return;
+
+    // Configurar el mapa con la ubicación del cliente
+    const map = initializeMap(mapContainerRef.current, {
+      center: clienteData?.latitud && clienteData?.longitud 
+        ? [parseFloat(clienteData.latitud), parseFloat(clienteData.longitud)]
+        : [-16.5000, -68.1193],
+      zoom: 15
+    });
+
+    // Agregar marcador si hay ubicación
+    if (clienteData?.latitud && clienteData?.longitud) {
+      const position = {
+        lat: parseFloat(clienteData.latitud),
+        lng: parseFloat(clienteData.longitud)
+      };
+      
+      createMarker(position, {
+        title: clienteData.nombre_completo || 'Ubicación del cliente'
       });
+      
+      // Centrar el mapa en la ubicación
+      centerMap(position.lat, position.lng, 16);
+    }
 
-      // Agregar marcador si hay ubicación
-      if (clienteData?.latitud && clienteData?.longitud) {
-        const position = {
-          lat: parseFloat(clienteData.latitud),
-          lng: parseFloat(clienteData.longitud)
-        };
+    // Configurar iconos de Leaflet
+    delete L.Icon.Default.prototype._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
+      iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+      shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+    });
+
+    // Limpieza al desmontar
+    return () => {
+      try {
+        // Limpiar marcadores
+        clearMarkers();
         
-        createMarker(position, {
-          title: clienteData.nombre_completo || 'Ubicación del cliente'
-        });
-        
-        // Centrar el mapa en la ubicación
-        centerMap(position.lat, position.lng, 16);
-      }
-
-      // Asegurarse de que los iconos de Leaflet se carguen correctamente
-      delete L.Icon.Default.prototype._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
-        iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
-      });
-
-      // Limpieza al desmontar
-      return () => {
+        // Limpiar el mapa si existe
         if (map) {
+          map.off();
           map.remove();
         }
-      };
-    }
-  }, [isLoaded, clienteData, initializeMap, createMarker, centerMap]);
+      } catch (error) {
+        console.warn('Error al limpiar el mapa:', error);
+      }
+    };
+  }, [isLoaded, clienteData, initializeMap, createMarker, centerMap, clearMarkers]);
 
   const handleEstadoChange = async (nuevoEstado) => {
     if (!clienteData?.id) {
@@ -170,19 +179,26 @@ const ClienteDetail = ({ cliente, onClose, onEdit }) => {
       setSuccess(`Estado cambiado a ${nuevoEstado} exitosamente`);
       setObservaciones('');
       
-      // Reinicializar el mapa con el nuevo estado
-      if (isLoaded) {
-        setTimeout(() => {
+      // Si hay cambios en la ubicación, actualizar el marcador
+      if (isLoaded && mapContainerRef.current) {
+        try {
           clearMarkers();
-          const position = {
-            lat: parseFloat(clienteData.latitud),
-            lng: parseFloat(clienteData.longitud)
-          };
-          createMarker(position, {
-            title: clienteData.nombre_completo || 'Ubicación del cliente'
-          });
-          centerMap(position.lat, position.lng, 16);
-        }, 100);
+          
+          if (formatted.latitud && formatted.longitud) {
+            const position = {
+              lat: parseFloat(formatted.latitud),
+              lng: parseFloat(formatted.longitud)
+            };
+            
+            createMarker(position, {
+              title: formatted.nombre_completo || 'Ubicación del cliente'
+            });
+            
+            centerMap(position.lat, position.lng, 16);
+          }
+        } catch (error) {
+          console.warn('Error al actualizar el marcador:', error);
+        }
       }
     } catch (err) {
       console.error('Error al cambiar estado:', err);

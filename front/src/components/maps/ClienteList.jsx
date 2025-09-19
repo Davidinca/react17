@@ -31,18 +31,27 @@ import {
   ExclamationTriangleIcon,
   BuildingOfficeIcon,
   UserIcon,
-  HomeIcon
+  HomeIcon,
+  DocumentArrowDownIcon
 } from '@heroicons/react/24/outline';
 import { useLeafletMap } from './hooks/useLeafletMap';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { jsPDF } from 'jspdf';
 import { 
   clienteService, 
   CLIENTE_ESTADOS, 
   COBERTURA_CHOICES, 
   TIPO_CLIENTE_CHOICES, 
   VIVIENDA_CHOICES 
-} from '../solicitud/services/servi';
+} from '../maps/services/apiService';
+
+// Función para formatear fechas
+const formatDate = (dateString) => {
+  if (!dateString) return 'No especificada';
+  const options = { year: 'numeric', month: 'long', day: 'numeric' };
+  return new Date(dateString).toLocaleDateString('es-ES', options);
+};
 
 /**
  * Funciones auxiliares para obtener información de estados y tipos
@@ -137,6 +146,7 @@ const getMarkerColor = (estado) => {
 const ClienteList = ({ onEdit, onView, onDelete, refreshTrigger }) => {
   // Estados principales
   const [clientes, setClientes] = useState([]);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
   const [filteredClientes, setFilteredClientes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -461,6 +471,258 @@ const ClienteList = ({ onEdit, onView, onDelete, refreshTrigger }) => {
     } catch (err) {
       console.error('Error cambiando estado:', err);
       setError(`Error al cambiar estado: ${err.message}`);
+    }
+  };
+
+  /**
+   * Genera un PDF para el cliente
+   */
+  const generatePDF = async (cliente) => {
+    try {
+      setGeneratingPDF(true);
+      
+      // Crear una nueva instancia de jsPDF
+      const doc = new jsPDF();
+      
+      // Configuración inicial
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      let yPos = 20;
+      const primaryColor = [30, 64, 175]; // Azul corporativo
+      const watermarkColor = [200, 200, 200]; // Color gris claro para la marca de agua
+      
+      // Función para la marca de agua
+      const addWatermark = () => {
+        const fontSize = 60; // Reducir tamaño de la marca de agua
+        const text = 'COTEL';
+        
+        doc.setFontSize(fontSize);
+        doc.setTextColor(watermarkColor[0], watermarkColor[1], watermarkColor[2]);
+        doc.setFont('helvetica', 'bold');
+        
+        const textWidth = doc.getTextWidth(text);
+        const x = (pageWidth - textWidth) / 2;
+        const y = pageHeight / 2;
+        
+        doc.setGState(doc.GState({opacity: 0.08})); // Reducir opacidad
+        doc.text(text, x, y, { angle: 30 });
+        
+        // Restaurar configuración
+        doc.setGState(doc.GState({opacity: 1}));
+        doc.setFontSize(10); // Tamaño de fuente más pequeño
+        doc.setTextColor(0, 0, 0);
+      };
+      
+      // Función para agregar texto con estilo
+      const addText = (text, x, y, options = {}) => {
+        const { 
+          size = 11, 
+          style = 'normal', 
+          align = 'left', 
+          color = [0, 0, 0],
+          maxWidth = pageWidth - margin * 2
+        } = options;
+        
+        const prevFont = doc.getFont();
+        doc.setFont('helvetica', style);
+        doc.setFontSize(size);
+        doc.setTextColor(...color);
+        
+        const lines = doc.splitTextToSize(text, maxWidth);
+        let xPos = x;
+        
+        lines.forEach((line, i) => {
+          const textWidth = doc.getTextWidth(line);
+          
+          if (align === 'center') {
+            xPos = (pageWidth - textWidth) / 2;
+          } else if (align === 'right') {
+            xPos = pageWidth - margin - textWidth;
+          }
+          
+          doc.text(line, xPos, y + (i * (size * 0.35 + 2)));
+        });
+        
+        doc.setFont(prevFont.fontName, prevFont.fontStyle);
+        return lines.length * (size * 0.35 + 2);
+      };
+
+      // Función para agregar una sección con título y líneas de texto
+      const addSection = (title, items, startY) => {
+        let currentY = startY;
+        
+        // Verificar si hay suficiente espacio para la sección
+        const sectionHeight = items.length * 10 + 15; // Reducir altura estimada
+        if (currentY + sectionHeight > pageHeight - 50) {
+          // Agregar pie de página a la página actual
+          addFooter(1);
+          // Agregar nueva página
+          doc.addPage();
+          // Agregar marca de agua en la nueva página
+          addWatermark();
+          currentY = 30; // Resetear posición Y para la nueva página
+        }
+        
+        // Título de sección con fondo
+        doc.setFillColor(240, 240, 240);
+        doc.roundedRect(margin, currentY, pageWidth - margin * 2, 10, 2, 2, 'F');
+        addText(title, margin + 8, currentY + 7, { 
+          size: 10, 
+          style: 'bold',
+          color: primaryColor
+        });
+        
+        currentY += 12;
+        
+        // Contenido de la sección
+        items.forEach(([label, value]) => {
+          const labelText = `${label}:`;
+          const labelWidth = doc.getTextWidth(labelText) + 5;
+          
+          // Etiqueta
+          addText(labelText, margin + 5, currentY + 5, { 
+            style: 'bold',
+            size: 10
+          });
+          
+          // Valor con fondo
+          const valueText = value || 'No especificado';
+          const valueLines = doc.splitTextToSize(
+            valueText, 
+            pageWidth - margin * 2 - labelWidth - 10
+          );
+          
+          // Calcular altura del valor
+          const valueHeight = Math.max(8, valueLines.length * 4);
+          
+          // Fondo del valor
+          doc.setFillColor(250, 250, 250);
+          doc.roundedRect(
+            margin + labelWidth, 
+            currentY, 
+            pageWidth - margin * 2 - labelWidth - 5, 
+            valueHeight + 4, 
+            2, 2, 'FD'
+          );
+          
+          // Borde sutil
+          doc.setDrawColor(220, 220, 220);
+          doc.roundedRect(
+            margin + labelWidth, 
+            currentY, 
+            pageWidth - margin * 2 - labelWidth - 5, 
+            valueHeight + 4, 
+            2, 2, 'S'
+          );
+          
+          // Texto del valor
+          addText(
+            valueText, 
+            margin + labelWidth + 5, 
+            currentY + 5, 
+            { 
+              size: 10,
+              color: [80, 80, 80],
+              maxWidth: pageWidth - margin * 2 - labelWidth - 15
+            }
+          );
+          
+          currentY += valueHeight + 6; // Reducir espacio entre líneas
+        });
+        
+        return currentY + 5; // Reducir espacio después de la sección
+      };
+
+      // Función para el pie de página
+      const addFooter = (pageNumber) => {
+        const footerY = pageHeight - 15;
+        doc.setFontSize(7); // Fuente más pequeña
+        doc.setTextColor(100, 100, 100);
+        doc.setLineWidth(0.1); // Línea más delgada
+        doc.line(margin, footerY - 5, pageWidth - margin, footerY - 5);
+        doc.text(
+          `Página ${pageNumber} • Documento generado el ${new Date().toLocaleDateString()}`,
+          pageWidth / 2,
+          footerY,
+          { align: 'center' }
+        );
+      };
+
+      // Agregar marca de agua
+      addWatermark();
+      
+      // Encabezado
+      addText('COTEL S.A.', pageWidth / 2, yPos, {
+        size: 16,
+        style: 'bold',
+        align: 'center',
+        color: primaryColor
+      });
+      
+      addText('INFORMACIÓN DEL CLIENTE', pageWidth / 2, yPos + 8, {
+        size: 12,
+        style: 'bold',
+        align: 'center'
+      });
+      
+      // Línea decorativa más delgada
+      doc.setDrawColor(...primaryColor);
+      doc.setLineWidth(0.3);
+      doc.line(margin, yPos + 16, pageWidth - margin, yPos + 16);
+      
+      // Fecha
+      addText(
+        `Fecha: ${new Date().toLocaleDateString('es-ES', { 
+          day: '2-digit',
+          month: '2-digit', 
+          year: 'numeric'
+        })}`,
+        pageWidth - margin,
+        yPos + 25,
+        { align: 'right', size: 9 }
+      );
+      
+      yPos += 20; // Menor espacio después del encabezado
+
+      // Sección de Datos Personales
+      const datosPersonalesItems = [
+        ['Nombres', `${cliente.nombre || ''} ${cliente.apellido_paterno || ''} ${cliente.apellido_materno || ''}`.trim()],
+        ['CI/NIT', cliente.ci_nit || 'No especificado'],
+        ['Teléfono', cliente.telefono || 'No especificado'],
+        ['Email', cliente.email || 'No especificado'],
+        ['Tipo de Cliente', getTipoClienteInfo(cliente.tipo_cliente).label],
+        ['Estado', getEstadoInfo(cliente.estado).label],
+        ['Fecha de Registro', formatDate(cliente.fecha_registro)]
+      ];
+      
+      // Sección de Ubicación
+      const ubicacionItems = [
+        ['Dirección', cliente.direccion || 'No especificada'],
+        ['Zona', cliente.zona || 'No especificada'],
+        ['Referencia', cliente.referencia || 'No especificada']
+      ];
+      
+      // Agregar secciones
+      yPos = addSection('DATOS PERSONALES', datosPersonalesItems, yPos);
+      yPos = addSection('UBICACIÓN', ubicacionItems, yPos);
+      
+      // Agregar observaciones si existen
+      if (cliente.observaciones) {
+        yPos = addSection('OBSERVACIONES', [['', cliente.observaciones]], yPos);
+      }
+      
+      // Agregar pie de página
+      addFooter(1);
+      
+      // Guardar el PDF
+      doc.save(`cliente_${cliente.ci_nit || cliente.id}.pdf`);
+      
+    } catch (error) {
+      console.error('Error al generar PDF:', error);
+      setError('Error al generar el PDF: ' + (error.message || 'Error desconocido'));
+    } finally {
+      setGeneratingPDF(false);
     }
   };
 
@@ -981,6 +1243,16 @@ const ClienteList = ({ onEdit, onView, onDelete, refreshTrigger }) => {
                               title="Eliminar"
                             >
                               <TrashIcon className="h-4 w-4" />
+                            </IconButton>
+                            
+                            <IconButton
+                              size="sm"
+                              variant="text"
+                              color="blue"
+                              onClick={() => generatePDF(cliente)}
+                              title="Generar PDF"
+                            >
+                              <DocumentArrowDownIcon className="h-4 w-4" />
                             </IconButton>
                           </div>
 

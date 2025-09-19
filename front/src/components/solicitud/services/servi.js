@@ -337,14 +337,12 @@ class PlanService extends BaseService {
 
   // Alias para mantener compatibilidad con el código existente
   async getAll(params = {}) {
-    return await this.obtenerActivos();
+    return await this.obtenerActivos(params);
   }
 
   async obtenerPorTipoConexion(tipoConexionId) {
     try {
-      const response = await apiClient.get(`${this.endpoint}/`, {
-        params: { COD_TIPO_CONEXION: tipoConexionId }
-      });
+      const response = await apiClient.get(`${this.endpoint}/tipo-conexion/${tipoConexionId}/`);
       return response.data;
     } catch (error) {
       throw this.handleError(error, 'Error al obtener planes por tipo de conexión');
@@ -353,9 +351,7 @@ class PlanService extends BaseService {
 
   async obtenerActivos() {
     try {
-      const response = await apiClient.get(`${this.endpoint}/`, {
-        params: { ESTADO_ACTIVO: '1' }
-      });
+      const response = await apiClient.get(`${this.endpoint}/activos/`);
       return response.data;
     } catch (error) {
       throw this.handleError(error, 'Error al obtener planes activos');
@@ -364,15 +360,50 @@ class PlanService extends BaseService {
 
   async obtenerPorRangoPrecio(precioMin, precioMax) {
     try {
-      const response = await apiClient.get(`${this.endpoint}/`, {
-        params: { 
-          MONTO_BASICO__gte: precioMin,
-          MONTO_BASICO__lte: precioMax
-        }
+      const response = await apiClient.get(`${this.endpoint}/rango-precio/`, {
+        params: { precio_min: precioMin, precio_max: precioMax }
       });
       return response.data;
     } catch (error) {
       throw this.handleError(error, 'Error al obtener planes por rango de precio');
+    }
+  }
+}
+
+class EquipoONUService extends BaseService {
+  constructor() {
+    super('/api/almacenes/equipos');
+  }
+
+  async obtenerDisponibles(tipo = 'ONU', estado = 'DISPONIBLE') {
+    try {
+      const response = await apiClient.get(`${this.endpoint}/disponibles/`, {
+        params: { tipo, estado }
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Error al obtener equipos disponibles');
+    }
+  }
+
+  async asignarEquipo(equipoId, solicitudId) {
+    try {
+      const response = await apiClient.patch(`${this.endpoint}/${equipoId}/`, {
+        estado: 'ASIGNADO',
+        solicitud_id: solicitudId
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Error al asignar equipo');
+    }
+  }
+
+  async obtenerPorSolicitud(solicitudId) {
+    try {
+      const response = await apiClient.get(`${this.endpoint}/solicitud/${solicitudId}/`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Error al obtener equipo por solicitud');
     }
   }
 }
@@ -384,36 +415,35 @@ class SeguimientoService extends BaseService {
 
   async obtenerPorSolicitud(solicitudId) {
     try {
-      const response = await apiClient.get(`${this.endpoint}/`, {
-        params: { SOLICITUD: solicitudId }
-      });
+      const response = await apiClient.get(`${this.endpoint}/solicitud/${solicitudId}/`);
       return response.data;
     } catch (error) {
-      throw this.handleError(error, 'Error al obtener seguimiento de solicitud');
+      throw this.handleError(error, 'Error al obtener seguimientos de la solicitud');
     }
   }
 
-  async crearSeguimiento(solicitudId, estadoId, userId) {
+  async crearSeguimiento(solicitudId, estadoId, userId = null) {
     try {
-      const response = await apiClient.post(`${this.endpoint}/`, {
-        SOLICITUD: solicitudId,
-        COD_ESTADO: estadoId,
-        F_INICIO: new Date().toISOString().split('T')[0],
-        USER_INICIO: userId,
-        NRO_SEGUIMIENTO: Date.now() // Temporal, mejor manejarlo en backend
-      });
+      const data = {
+        solicitud_id: solicitudId,
+        estado_id: estadoId,
+        usuario_id: userId,
+        fecha_inicio: new Date().toISOString()
+      };
+      const response = await apiClient.post(this.endpoint, data);
       return response.data;
     } catch (error) {
       throw this.handleError(error, 'Error al crear seguimiento', true);
     }
   }
 
-  async finalizarSeguimiento(id, userId) {
+  async finalizarSeguimiento(id, userId = null) {
     try {
-      const response = await apiClient.patch(`${this.endpoint}/${id}/`, {
-        F_FIN: new Date().toISOString().split('T')[0],
-        USER_FIN: userId
-      });
+      const data = {
+        fecha_fin: new Date().toISOString(),
+        usuario_fin_id: userId
+      };
+      const response = await apiClient.patch(`${this.endpoint}/${id}/`, data);
       return response.data;
     } catch (error) {
       throw this.handleError(error, 'Error al finalizar seguimiento');
@@ -421,7 +451,6 @@ class SeguimientoService extends BaseService {
   }
 }
 
-// Servicios simples para entidades de catálogo
 class CatalogoService extends BaseService {
   async obtenerActivos() {
     try {
@@ -441,13 +470,15 @@ const solicitudService = new SolicitudService();
 const contratoService = new ContratoService();
 const planService = new PlanService();
 const seguimientoService = new SeguimientoService();
+const equipoONUService = new EquipoONUService();
 
 export {
   clienteService,
   solicitudService,
   contratoService,
   planService,
-  seguimientoService
+  seguimientoService,
+  equipoONUService
 };
 
 // Servicios de catálogo
@@ -654,6 +685,7 @@ export default {
   contratoService,
   planService,
   seguimientoService,
+  equipoONUService,
   
   // Servicios de catálogo
   tipoTrabajoService,

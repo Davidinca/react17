@@ -319,6 +319,36 @@ class EquipoServicioSerializer(serializers.ModelSerializer):
 
 
 class SolicitudEquipoONUSerializer(serializers.ModelSerializer):
+    equipo_onu_info = serializers.SerializerMethodField()
+    solicitud_info = serializers.SerializerMethodField()
+    estado_display = serializers.CharField(source='get_estado_asignacion_display', read_only=True)
+    
     class Meta:
         model = SolicitudEquipoONU
-        fields = '__all__'
+        fields = [
+            'id',
+            'solicitud',
+            'solicitud_info',
+            'equipo_onu',
+            'equipo_onu_info',
+            'estado_asignacion',
+            'estado_display',
+            'fecha_reserva',
+            'fecha_asignacion',
+            'fecha_desasignacion',
+            'observaciones'
+        ]
+        read_only_fields = ['fecha_reserva']
+    
+    def get_equipo_onu_info(self, obj):
+        from almacenes.serializers import EquipoONUListSerializer
+        return EquipoONUListSerializer(obj.equipo_onu).data
+    
+    def get_solicitud_info(self, obj):
+        from solicitud.serializers import SolicitudSerializer
+        return {
+            'id': obj.solicitud.id,
+            'codigo': f"SOL-{obj.solicitud.id:06d}",
+            'fecha_solicitud': obj.solicitud.fecha_solicitud,
+            'cliente_nombre': f"{obj.solicitud.cliente.nombre} {obj.solicitud.cliente.apellido}"
+        }

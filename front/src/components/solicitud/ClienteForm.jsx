@@ -40,7 +40,7 @@ import {
 import { useLeafletMap } from './hooks/useLeafletMap';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { clienteService, planService } from './services/servi.js';
+import { clienteService, planService, equipoONUService } from './services/servi.js';
 import { validateCliente } from './utils/validations';
 import { jsPDF } from 'jspdf';
 import { 
@@ -65,8 +65,9 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
     reverseGeocode
   } = useLeafletMap();
 
-  // Referencia al mapa
+  // Referencias
   const mapRef = useRef(null);
+  const markersRef = useRef([]);
 
   // ===========================================
   // GENERACIÓN DE PDF
@@ -261,25 +262,35 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
   // Función auxiliar para asignar equipo ONU
   const asignarEquipoONU = async (solicitudId) => {
     try {
-      // Verificar stock de equipos ONU disponibles
-      const response = await apiClient.get('/api/almacenes/equipos/disponibles', {
-        params: { tipo: 'ONU', estado: 'DISPONIBLE' }
-      });
+      // 1. Obtener equipos ONU disponibles usando el servicio
+      const equipos = await equipoONUService.obtenerDisponibles('ONU', 'DISPONIBLE');
       
-      if (response.data && response.data.length > 0) {
-        const equipo = response.data[0];
+      if (equipos && equipos.length > 0) {
+        const equipo = equipos[0];
         
-        // Actualizar estado del equipo a ASIGNADO
-        await apiClient.patch(`/api/almacenes/equipos/${equipo.id}/`, {
-          estado: 'ASIGNADO',
-          solicitud_id: solicitudId
+        // 2. Asignar el equipo a la solicitud usando el servicio
+        await equipoONUService.asignarEquipo(equipo.id, solicitudId);
+
+        // 3. Obtener la información completa del equipo asignado
+        const equipoAsignado = await equipoONUService.obtenerPorSolicitud(solicitudId);
+        
+        // 4. Actualizar el estado local
+        setEquipo({
+          EQUIPO_ID: equipoAsignado.id,
+          ESTADO_ASIGNACION: 'ASIGNADO',
+          MODELO: equipoAsignado.modelo?.nombre || 'No especificado',
+          MAC: equipoAsignado.mac_address || 'No especificado',
+          SERIAL: equipoAsignado.numero_serie || 'No especificado'
         });
         
-        return equipo;
+        return equipoAsignado;
+      } else {
+        toast.warning('No hay equipos ONU disponibles en este momento.');
+        return null;
       }
-      return null;
     } catch (error) {
       console.error('Error al asignar equipo ONU:', error);
+      toast.error('Error al asignar el equipo ONU. Por favor, intente nuevamente.');
       return null;
     }
   };
@@ -306,7 +317,18 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
 
   const [equipo, setEquipo] = useState({
     EQUIPO_ID: '',
-    ESTADO_ASIGNACION: 'PENDIENTE'
+    ESTADO_ASIGNACION: 'PENDIENTE',
+    MODELO: '',
+    MAC: '',
+    SERIAL: ''
+  });
+
+  // Estado para manejar los datos del plan seleccionado
+  const [datosPlan, setDatosPlan] = useState({
+    plan_id: cliente?.plan_id || '',
+    tipo_servicio: 'INTERNET',
+    observaciones: '',
+    fecha_instalacion: ''
   });
 
   // ===========================================
@@ -424,6 +446,35 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
       setVerificandoCobertura(false);
     }
   }, [cliente?.id, isEditing]);
+
+  /**
+   * Cargar información del equipo ONU cuando se está editando una solicitud
+   */
+  useEffect(() => {
+    const cargarEquipoSolicitud = async () => {
+      if (isEditing && cliente?.solicitud_id) {
+        try {
+          const equipoSolicitud = await equipoONUService.obtenerPorSolicitud(cliente.solicitud_id);
+          
+          if (equipoSolicitud && equipoSolicitud.length > 0) {
+            const equipoData = equipoSolicitud[0]; // Tomamos el primer equipo si hay varios
+            setEquipo({
+              EQUIPO_ID: equipoData.id,
+              ESTADO_ASIGNACION: equipoData.estado_asignacion || 'ASIGNADO',
+              MODELO: equipoData.equipo_onu?.modelo?.nombre || 'No especificado',
+              MAC: equipoData.equipo_onu?.mac_address || 'No especificado',
+              SERIAL: equipoData.equipo_onu?.numero_serie || 'No especificado'
+            });
+          }
+        } catch (error) {
+          console.error('Error al cargar el equipo de la solicitud:', error);
+          // No mostramos error al usuario para no interrumpir el flujo
+        }
+      }
+    };
+
+    cargarEquipoSolicitud();
+  }, [isEditing, cliente?.solicitud_id]);
 
   /**
    * Inicializar mapa cuando el componente se monta o cambia el paso
@@ -884,8 +935,14 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
             SOLICITUD: savedSolicitud.SOLICITUD,
             F_CONTRATO: new Date().toISOString().split('T')[0],
             COD_ESTADO_CONTRATO: 2001, // Activo
+            EQUIPO_ID: equipoAsignado.id, // Incluir ID del equipo asignado
             ...datosSolicitud
           };
+          
+          // Actualizar la solicitud con la información del equipo
+          await apiClient.patch(`/api/solicitudes/${savedSolicitud.SOLICITUD}/`, {
+            equipo_asignado: equipoAsignado.id
+          });
           
           const savedContrato = await apiClient.post('/api/contratos', contratoData);
           
@@ -1493,7 +1550,7 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
             <div
               key={plan.id}
               className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                datosPlan.plan_id === plan.id
+                datosPlan?.plan_id === plan.id
                   ? 'border-blue-500 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
@@ -1725,6 +1782,65 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
             )}
           </CardBody>
         </Card>
+
+        {/* Información del Equipo ONU (solo si hay cobertura) */}
+        {cobertura === 'CON_COBERTURA' && equipo.EQUIPO_ID && (
+          <Card className="border">
+            <CardHeader floated={false} shadow={false} className="rounded-none bg-amber-50 py-3">
+              <Typography variant="h6" color="blue-gray" className="flex items-center gap-2">
+                📡 Equipo ONU Asignado
+              </Typography>
+            </CardHeader>
+            <CardBody className="pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Typography variant="small" color="gray">ID del Equipo</Typography>
+                  <Typography variant="small" className="font-medium">
+                    {equipo.EQUIPO_ID}
+                  </Typography>
+                </div>
+                <div>
+                  <Typography variant="small" color="gray">Estado</Typography>
+                  <Chip
+                    size="sm"
+                    value={equipo.ESTADO_ASIGNACION}
+                    color={
+                      equipo.ESTADO_ASIGNACION === 'ASIGNADO' 
+                        ? 'green' 
+                        : equipo.ESTADO_ASIGNACION === 'RESERVADO'
+                          ? 'amber'
+                          : 'gray'
+                    }
+                  />
+                </div>
+                {equipo.MODELO && (
+                  <div>
+                    <Typography variant="small" color="gray">Modelo</Typography>
+                    <Typography variant="small" className="font-medium">
+                      {equipo.MODELO}
+                    </Typography>
+                  </div>
+                )}
+                {equipo.MAC && (
+                  <div>
+                    <Typography variant="small" color="gray">Dirección MAC</Typography>
+                    <Typography variant="small" className="font-medium font-mono">
+                      {equipo.MAC}
+                    </Typography>
+                  </div>
+                )}
+                {equipo.SERIAL && (
+                  <div>
+                    <Typography variant="small" color="gray">Número de Serie</Typography>
+                    <Typography variant="small" className="font-medium">
+                      {equipo.SERIAL}
+                    </Typography>
+                  </div>
+                )}
+              </div>
+            </CardBody>
+          </Card>
+        )}
 
         {/* Resumen del Plan (solo si hay cobertura) */}
         {cobertura === 'CON_COBERTURA' && planSeleccionado && (

@@ -8,7 +8,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('almacenes', '0001_initial'),
-        ('solicitud', '0001_initial'),
     ]
 
     operations = [

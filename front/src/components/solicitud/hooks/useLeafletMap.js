@@ -175,38 +175,63 @@ export const useLeafletMap = () => {
     }
   }, []);
 
-  // Geocodificación inversa: Coordenadas a dirección
+  // Geocodificación inversa (de coordenadas a dirección)
   const reverseGeocode = useCallback(async (lat, lng) => {
     try {
-      const response = await fetch(
-        `${reverseGeocoderService}?lat=${lat}&lon=${lng}&format=json&addressdetails=1`
-      );
+      // Usar un proxy CORS para evitar problemas de CORS
+      const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+      const targetUrl = `${reverseGeocoderService}?lat=${lat}&lon=${lng}&format=json&addressdetails=1`;
+      
+      const response = await fetch(proxyUrl + targetUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'YourApp/1.0 (your-email@example.com)'
+        }
+      });
       
       if (!response.ok) {
-        throw new Error('Error en la solicitud de geocodificación inversa');
-      }
-
-      const data = await response.json();
-      
-      if (!data) {
-        throw new Error('No se pudo obtener la dirección para las coordenadas proporcionadas');
-      }
-
-      return {
-        formatted: data.display_name,
-        address_components: data.address,
-        geometry: {
-          location: {
-            lat: () => parseFloat(lat),
-            lng: () => parseFloat(lng)
-          }
+        // Si el proxy falla, intentar directamente (puede fallar por CORS)
+        console.warn('Error con el proxy, intentando solicitud directa');
+        const directResponse = await fetch(targetUrl);
+        
+        if (!directResponse.ok) {
+          throw new Error('Error en la respuesta del servidor');
         }
-      };
+        
+        const data = await directResponse.json();
+        return formatGeocodeResponse(data, lat, lng);
+      }
+      
+      const data = await response.json();
+      return formatGeocodeResponse(data, lat, lng);
+      
     } catch (error) {
       console.error('Error en reverseGeocode:', error);
+      // Devolver un objeto con los datos mínimos para que la aplicación no falle
+      return {
+        displayName: `Ubicación (${lat.toFixed(6)}, ${lng.toFixed(6)})`,
+        address: {},
+        lat: lat,
+        lon: lng,
+        raw: {}
+      };
+    }
+  }, [reverseGeocoderService]);
+  
+  // Función auxiliar para formatear la respuesta de geocodificación
+  const formatGeocodeResponse = (data, lat, lng) => {
+    if (!data) {
       throw new Error('No se pudo obtener la dirección');
     }
-  }, []);
+    
+    return {
+      displayName: data.display_name || `Ubicación (${lat.toFixed(6)}, ${lng.toFixed(6)})`,
+      address: data.address || {},
+      lat: parseFloat(data.lat) || lat,
+      lon: parseFloat(data.lon) || lng,
+      raw: data
+    };
+  };
 
   // Centrar el mapa en una ubicación
   const centerMap = useCallback((lat, lng, zoom) => {

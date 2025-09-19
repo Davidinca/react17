@@ -1,5 +1,4 @@
 from django.db import models
-from solicitud.models import Solicitud 
 
 class Marca(models.Model):
     nombre = models.CharField(max_length=100, unique=True)
@@ -158,7 +157,6 @@ class EquipoServicio(models.Model):
 
 
 class SolicitudEquipoONU(models.Model):
-    solicitud = models.ForeignKey('solicitud.Solicitud', on_delete=models.CASCADE)
     equipo_onu = models.ForeignKey(EquipoONU, on_delete=models.CASCADE)
     estado_asignacion = models.CharField(
         max_length=20,
@@ -173,7 +171,7 @@ class SolicitudEquipoONU(models.Model):
 
     class Meta:
         db_table = 'solicitud_equipo_onu'
-        unique_together = ('solicitud', 'equipo_onu')
+       
 
     def __str__(self):
         return f"{self.equipo_onu} - {self.solicitud} ({self.estado_asignacion})"

@@ -3,8 +3,8 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Count, Case, When, IntegerField, Q
-from .models import FormaPago, TipoConexion, Plan, Cliente
-from .serializers import FormaPagoSerializer, TipoConexionSerializer, PlanSerializer, ClienteSerializer
+from .models import FormaPago, TipoConexion, Plan, Cliente,Cobfactu
+from .serializers import FormaPagoSerializer, TipoConexionSerializer, PlanSerializer, ClienteSerializer, CobfactuSerializer
 
 class FormaPagoViewSet(viewsets.ModelViewSet):
     queryset = FormaPago.objects.all()
@@ -72,4 +72,19 @@ class ClienteViewSet(viewsets.ModelViewSet):
             'por_tipo': list(por_tipo),
             'por_cobertura': list(por_cobertura),
             'top_zonas': list(top_zonas),
+        })
+
+class CobfactuViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Cobfactu.objects.all()
+    serializer_class = CobfactuSerializer
+    
+    def list(self, request, *args, **kwargs):
+        """
+        Endpoint para obtener todas las facturas
+        """
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'count': queryset.count(),
+            'data': serializer.data
         })

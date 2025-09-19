@@ -20,7 +20,7 @@ import {
 import { useLeafletMap } from './hooks/useLeafletMap';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { clienteService, planService } from '../solicitud/services/servi';
+import { clienteService, planService } from '../maps/services/apiService';
 import { validateCliente } from './utils/validations';
 import { jsPDF } from 'jspdf';
 import { 
@@ -58,125 +58,302 @@ const ClienteForm = ({ cliente = null, onSave, onCancel, isEditing = false }) =>
     
     // Configuración inicial
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 15;
     let yPos = 20;
-    const lineHeight = 7;
-
+    const primaryColor = [30, 64, 175]; // Azul corporativo
+    const watermarkColor = [200, 200, 200]; // Color gris claro para la marca de agua
+    
+    // Función para la marca de agua
+    const addWatermark = () => {
+      const fontSize = 60; // Reducir tamaño de la marca de agua
+      const text = 'COTEL';
+      
+      // Configuración del texto
+      doc.setFontSize(fontSize);
+      doc.setTextColor(watermarkColor[0], watermarkColor[1], watermarkColor[2]);
+      doc.setFont('helvetica', 'bold');
+      
+      // Obtener el ancho del texto
+      const textWidth = doc.getTextWidth(text);
+      
+      // Posición centrada
+      const x = (pageWidth - textWidth) / 2;
+      const y = pageHeight / 2;
+      
+      // Agregar marca de agua con opacidad
+      doc.setGState(doc.GState({opacity: 0.08})); // Reducir opacidad
+      doc.text(text, x, y, { angle: 30 });
+      
+      // Restaurar configuración
+      doc.setGState(doc.GState({opacity: 1}));
+      doc.setFontSize(10); // Tamaño de fuente más pequeño
+      doc.setTextColor(0, 0, 0);
+    };
+    
     // Función para agregar texto con estilo
     const addText = (text, x, y, options = {}) => {
-      const { size = 12, style = 'normal', align = 'left', color = '#000000' } = options;
+      const { 
+        size = 11, 
+        style = 'normal', 
+        align = 'left', 
+        color = [0, 0, 0],
+        maxWidth = pageWidth - margin * 2
+      } = options;
+      
       const prevFont = doc.getFont();
       doc.setFont('helvetica', style);
       doc.setFontSize(size);
-      doc.setTextColor(color);
+      doc.setTextColor(...color);
       
-      const textWidth = doc.getTextWidth(text);
+      const lines = doc.splitTextToSize(text, maxWidth);
       let xPos = x;
       
-      if (align === 'center') {
-        xPos = x - (textWidth / 2);
-      } else if (align === 'right') {
-        xPos = x - textWidth;
-      }
+      lines.forEach((line, i) => {
+        const textWidth = doc.getTextWidth(line);
+        
+        if (align === 'center') {
+          xPos = (pageWidth - textWidth) / 2;
+        } else if (align === 'right') {
+          xPos = pageWidth - margin - textWidth;
+        }
+        
+        doc.text(line, xPos, y + (i * (size * 0.35 + 2)));
+      });
       
-      doc.text(text, xPos, y);
       doc.setFont(prevFont.fontName, prevFont.fontStyle);
-      doc.setFontSize(12);
-      return lineHeight * (size / 12);
+      return lines.length * (size * 0.35 + 2);
     };
 
     // Función para agregar una sección con título y líneas de texto
     const addSection = (title, items, startY) => {
       let currentY = startY;
       
-      // Título de la sección
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
-      doc.text(title, margin, currentY);
-      currentY += 10;
+      // Verificar si hay suficiente espacio para la sección
+      const sectionHeight = items.length * 10 + 15; // Reducir altura estimada
+      if (currentY + sectionHeight > pageHeight - 50) {
+        // Agregar pie de página a la página actual
+        addFooter(1);
+        // Agregar nueva página
+        doc.addPage();
+        // Agregar marca de agua en la nueva página
+        addWatermark();
+        currentY = 30; // Resetear posición Y para la nueva página
+      }
       
-      // Líneas de la sección
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(12);
-      
-      items.forEach(([label, value]) => {
-        // Etiqueta en negrita
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${label}`, margin, currentY);
-        
-        // Valor
-        doc.setFont('helvetica', 'normal');
-        const lines = doc.splitTextToSize(value || 'No especificado', pageWidth - margin * 2 - 50);
-        doc.text(lines, margin + 50, currentY);
-        
-        // Ajustar posición Y según la cantidad de líneas del valor
-        currentY += Math.max(10, lines.length * 7);
+      // Título de sección con fondo
+      doc.setFillColor(240, 240, 240);
+      doc.roundedRect(margin, currentY, pageWidth - margin * 2, 10, 2, 2, 'F');
+      addText(title, margin + 8, currentY + 7, { 
+        size: 10, 
+        style: 'bold',
+        color: primaryColor
       });
       
-      return currentY + 15; // Espacio después de la sección
+      currentY += 12;
+      
+      // Contenido de la sección
+      items.forEach(([label, value]) => {
+        const labelText = `${label}:`;
+        const labelWidth = doc.getTextWidth(labelText) + 5;
+        
+        // Etiqueta
+        addText(labelText, margin + 5, currentY + 5, { 
+          style: 'bold',
+          size: 10
+        });
+        
+        // Valor con fondo
+        const valueText = value || 'No especificado';
+        const valueLines = doc.splitTextToSize(
+          valueText, 
+          pageWidth - margin * 2 - labelWidth - 10
+        );
+        
+        // Calcular altura del valor
+        const valueHeight = Math.max(8, valueLines.length * 4);
+        
+        // Fondo del valor
+        doc.setFillColor(250, 250, 250);
+        doc.roundedRect(
+          margin + labelWidth, 
+          currentY, 
+          pageWidth - margin * 2 - labelWidth - 5, 
+          valueHeight + 4, 
+          2, 2, 'FD'
+        );
+        
+        // Borde sutil
+        doc.setDrawColor(220, 220, 220);
+        doc.roundedRect(
+          margin + labelWidth, 
+          currentY, 
+          pageWidth - margin * 2 - labelWidth - 5, 
+          valueHeight + 4, 
+          2, 2, 'S'
+        );
+        
+        // Texto del valor
+        addText(
+          valueText, 
+          margin + labelWidth + 5, 
+          currentY + 5, 
+          { 
+            size: 10,
+            color: [80, 80, 80],
+            maxWidth: pageWidth - margin * 2 - labelWidth - 15
+          }
+        );
+        
+        currentY += valueHeight + 6; // Reducir espacio entre líneas
+      });
+      
+      return currentY + 5; // Reducir espacio después de la sección
     };
 
-    // Logo y Título
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(24);
-    doc.setTextColor(30, 64, 175); // Azul oscuro
-    doc.text('COTEL', pageWidth / 2, yPos, { align: 'center' });
-    
-    doc.setFontSize(18);
-    doc.text('CONTRATO DE SERVICIO', pageWidth / 2, yPos + 15, { align: 'center' });
-    
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0); // Negro
-    doc.text(`Fecha: ${new Date().toLocaleDateString()}`, margin, yPos + 30);
-    
-    yPos += 50;
+    // Función para el pie de página
+    const addFooter = (pageNumber) => {
+      const footerY = pageHeight - 15;
+      doc.setFontSize(7); // Fuente más pequeña
+      doc.setTextColor(100, 100, 100);
+      doc.setLineWidth(0.1); // Línea más delgada
+      doc.line(margin, footerY - 5, pageWidth - margin, footerY - 5);
+      doc.text(
+        `Página ${pageNumber} • Documento generado el ${new Date().toLocaleDateString()}`,
+        pageWidth / 2,
+        footerY,
+        { align: 'center' }
+      );
+    };
 
-    // Sección de Datos Personales
+    // Encabezado más compacto
+    addText('COTEL S.A.', pageWidth / 2, yPos, {
+      size: 16,
+      style: 'bold',
+      align: 'center',
+      color: primaryColor
+    });
+    
+    addText('CONTRATO DE SERVICIO', pageWidth / 2, yPos + 8, {
+      size: 12,
+      style: 'bold',
+      align: 'center'
+    });
+    
+    // Línea decorativa más delgada
+    doc.setDrawColor(...primaryColor);
+    doc.setLineWidth(0.3);
+    doc.line(margin, yPos + 16, pageWidth - margin, yPos + 16);
+    
+    // Fecha más pequeña
+    addText(
+      `Fecha: ${new Date().toLocaleDateString('es-ES', { 
+        day: '2-digit',
+        month: '2-digit', 
+        year: 'numeric'
+      })}`,
+      pageWidth - margin,
+      yPos + 25,
+      { align: 'right', size: 9 }
+    );
+    
+    yPos += 20; // Menor espacio después del encabezado
+
+    // Sección de Datos Personales más compacta
     const datosPersonalesItems = [
-      ['Nombres:', datosPersonales.nombre],
-      ['Apellidos:', datosPersonales.apellido],
-      ['CI/NIT:', datosPersonales.ci || datosPersonales.nit],
-      ['Teléfono:', datosPersonales.telefono],
-      ['Email:', datosPersonales.email],
-      ['Tipo de Cliente:', datosPersonales.tipo_cliente]
+      ['Nombres', datosPersonales.nombre],
+      ['Apellidos', datosPersonales.apellido],
+      ['CI/NIT', datosPersonales.ci || datosPersonales.nit || 'No especificado'],
+      ['Teléfono', datosPersonales.telefono],
+      ['Email', datosPersonales.email || 'No especificado'],
+      ['Tipo', datosPersonales.tipo_cliente === 'COMUN' ? 'Usuario común' : 'Empresa']
     ];
     
-    yPos = addSection('DATOS PERSONALES', datosPersonalesItems, yPos);
-
-    // Sección de Ubicación
+    // Sección de Ubicación más compacta
     const ubicacionItems = [
-      ['Dirección:', datosUbicacion.direccion_completa],
-      ['Zona:', datosUbicacion.zona],
-      ['Calle:', datosUbicacion.calle],
-      ['Número de puerta:', datosUbicacion.numero_puerta],
-      ['Tipo de vivienda:', datosUbicacion.vivienda],
-      ['Piso:', datosUbicacion.piso || 'N/A'],
-      ['Referencias:', datosUbicacion.referencias || 'Ninguna']
+      ['Dirección', datosUbicacion.direccion_completa],
+      ['Zona', datosUbicacion.zona],
+      ['Calle', datosUbicacion.calle],
+      ['N°', datosUbicacion.numero_puerta || 'S/N'],
+      ['Vivienda', datosUbicacion.vivienda === 'Casa' ? 'Casa' : 'Dpto.'],
+      ['Piso', datosUbicacion.piso || 'N/A'],
+      ['Ref.', datosUbicacion.referencias || 'Ninguna']
     ];
     
-    yPos = addSection('UBICACIÓN', ubicacionItems, yPos);
+    // Combinar secciones para mejor distribución
+    yPos = addSection('DATOS DEL CLIENTE', [...datosPersonalesItems, ...ubicacionItems], yPos);
 
-    // Sección del Plan
+    // Sección del Plan más compacta
     const planSeleccionado = planes.find(p => p.id === datosPlan.plan_id) || {};
     const planItems = [
-      ['Plan:', planSeleccionado.descripcion || 'No seleccionado'],
-      ['Código:', planSeleccionado.codigo || 'N/A'],
-      ['Tipo de servicio:', datosPlan.tipo_servicio || 'No especificado'],
-      ['Fecha de instalación:', datosPlan.fecha_instalacion || 'Por programar'],
-      ['Estado de cobertura:', cobertura === 'CON_COBERTURA' ? 'Con Cobertura' : 'Sin Cobertura']
+      ['Plan', planSeleccionado.descripcion || 'No seleccionado'],
+      ['Código', planSeleccionado.codigo || 'N/A'],
+      ['Servicio', datosPlan.tipo_servicio || 'No especificado'],
+      ['Instalación', datosPlan.fecha_instalacion || 'Por programar'],
+      ['Cobertura', cobertura === 'CON_COBERTURA' ? 'Con Cobertura' : 'Sin Cobertura'],
+      ['Mensualidad', planSeleccionado.monto_basico ? `$${parseFloat(planSeleccionado.monto_basico).toFixed(2)}` : 'N/A']
     ];
     
-    yPos = addSection('DETALLES DEL PLAN', planItems, yPos);
+    yPos = addSection('DETALLES DEL SERVICIO', planItems, yPos);
 
-    // Firma
-    const firmaY = Math.max(yPos, 250); // Asegurar que esté abajo en la página
+    // Términos y condiciones más concisos
+    const terminos = [
+      'Nota: El presente dictamen de evaluación se presenta en factura según informe técnico.',
+      '- En caso de algún incumplimiento por parte del cliente, el mismo no regresa a la central de procesos.',
+      '- El plazo de cumplimiento de los servicios solicitados es de 72 horas hábiles, una vez que el cliente haya ingresado a la central de procesos.',
+      '- El costo del servicio es de $100.00 (cien pesos 00/100 M.N.), el cual será facturado en la próxima factura.',
+      '- En caso de que el servicio no sea completado en el tiempo establecido, el cliente tiene derecho a una bonificación del 10% del costo del servicio.',
+      '- El cliente podrá solicitar una revisión adicional, la cual tendrá un costo adicional de $50.00 (cincuenta pesos 00/100 M.N.).',
+      '- En caso de que el cliente no esté satisfecho con el servicio, podrá solicitar una devolución del 50% del costo del servicio.',
+      '- Para cualquier duda o aclaración, comuníquese al teléfono 800-617-6177.',
+      '- No se incluye cable adicional.'
+    ];
     
-    doc.setLineWidth(0.5);
+    yPos = addSection('CONDICIONES', [['', terminos.join('\n')]], yPos);
+
+
+    // Firma más compacta
+    const firmaY = Math.min(Math.max(yPos, pageHeight - 50), pageHeight - 30);
+    
+    function addCenteredText(doc, text, xCenter, y, options = {}) {
+      const { size = 10, color = [0, 0, 0], style = 'normal' } = options;
+      doc.setFontSize(size);
+      doc.setTextColor(...color);
+      doc.setFont("helvetica", style);
+      const textWidth = doc.getTextWidth(text);
+      doc.text(text, xCenter - textWidth / 2, y);
+    }
+    
+    // Línea de firma del cliente
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.3);
     doc.line(margin, firmaY, margin + 80, firmaY);
-    doc.text('Firma del Cliente', margin + 40, firmaY + 10, { align: 'center' });
+    addCenteredText(doc, 'Firma Cliente', margin + 40, firmaY + 5, {
+      size: 8,
+      color: [100, 100, 100]
+    });
     
+    // Línea de firma de COTEL
     doc.line(pageWidth - margin - 80, firmaY, pageWidth - margin, firmaY);
-    doc.text('Representante COTEL', pageWidth - margin - 40, firmaY + 10, { align: 'center' });
+    addCenteredText(doc, 'COTEL S.A.', pageWidth - margin - 40, firmaY + 5, {
+      size: 8,
+      color: primaryColor,
+      style: 'bold'
+    });
+    
+    // Sello de confidencialidad más pequeño
+    addText('DOC. CONFIDENCIAL', pageWidth / 2, firmaY + 20, {
+      size: 7,
+      align: 'center',
+      color: [150, 150, 150],
+      style: 'italic'
+    });
+    
+    // Agregar marca de agua
+    addWatermark();
+    
+    // Agregar pie de página
+    addFooter(1);
 
     // Guardar el PDF
     doc.save(`contrato_${datosPersonales.nombre || 'cliente'}_${datosPersonales.apellido || ''}.pdf`);
